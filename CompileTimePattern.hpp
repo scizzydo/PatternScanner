@@ -1,9 +1,28 @@
 #pragma once
 #include "Pattern.hpp"
 #include <array>
+#include <algorithm>
+#include <stdexcept>
 
 template<size_t nstr>
 constexpr size_t pattern_length(const char(&s)[nstr]) {
+    size_t res = 0;
+    for (auto i = 0; i < nstr - 1; i += 2) {
+        auto c = s[i];
+        if (c == 'X' || c == 'x')
+            continue;
+        else if (c == '/')
+            break;
+        else if (c != ' ')
+            ++res;
+        else --i;
+    }
+    while (res % sizeof(void*))
+        ++res;
+    return res;
+}
+
+constexpr size_t pattern_length(const char *s, size_t nstr) {
     size_t res = 0;
     for (auto i = 0; i < nstr - 1; i += 2) {
         auto c = s[i];
@@ -45,11 +64,11 @@ public:
                 ++ptr;
                 while (*ptr) {
                     if (*ptr == 'd') {
-                        static_assert(rel_ == false, "Cannot use relative and dereference together.");
+                        if (rel_) throw std::logic_error("Cannot use relative and deref together!");
                         deref_ = true;
                     }
                     else if (*ptr == 'r') {
-                        static_assert(deref_ == false, "Cannot use relative and dereference together.");
+                        if (deref_) throw std::logic_error("Cannot use relative and deref together!");
                         rel_ = true;
                     }
                     else if (*ptr == 'a')
@@ -57,7 +76,7 @@ public:
                     // Check the next character to see what size we're reading at this relative address
                     else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
                         size_ = *ptr - '0';
-                        static_assert((size_ & (size_ - 1)) == 0, "Value for the relative address is not a valid base 2 digit");
+                        if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
                     }
                     ++ptr;
                 }
@@ -86,4 +105,22 @@ public:
 
 #ifndef COMPILETIME_PATTERN
 #define COMPILETIME_PATTERN(x) CompileTimePattern<sizeof(x)-1, pattern_length(x)>(x)
+#endif
+
+#if __cplusplus > 201703L
+template <size_t nstr>
+struct const_string {
+    char data[nstr]{};
+    static constexpr size_t length = nstr - 1;
+    static constexpr size_t size = nstr;
+
+    constexpr const_string(const char(&s)[nstr]) {
+        std::copy_n(s, length, data);
+    }
+};
+
+template<const_string str>
+constexpr auto operator"" _ctpattern() {
+    return CompileTimePattern<str.length, pattern_length(str.data, str.size)>(str.data);
+}
 #endif

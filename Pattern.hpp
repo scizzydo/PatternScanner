@@ -39,7 +39,7 @@ public:
     virtual const uint8_t* pattern() const = 0;
     template <typename T>
     T find(const uint8_t* bytes, size_t size) const {
-        return reinterpret_cast<T>(find_internal(bytes, size));
+        return reinterpret_cast<T>(find(bytes, size));
     }
     void* find(const uint8_t* bytes, size_t size) const;
 private:
