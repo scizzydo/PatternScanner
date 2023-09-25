@@ -1,11 +1,9 @@
 #pragma once
 #include "Pattern.hpp"
 #include <array>
-#include <algorithm>
 #include <stdexcept>
 
-template<size_t nstr>
-constexpr size_t pattern_length(const char(&s)[nstr]) {
+constexpr size_t pattern_length(const char* s, size_t nstr) {
     size_t res = 0;
     for (auto i = 0; i < nstr - 1; i += 2) {
         auto c = s[i];
@@ -22,21 +20,9 @@ constexpr size_t pattern_length(const char(&s)[nstr]) {
     return res;
 }
 
-constexpr size_t pattern_length(const char *s, size_t nstr) {
-    size_t res = 0;
-    for (auto i = 0; i < nstr - 1; i += 2) {
-        auto c = s[i];
-        if (c == 'X' || c == 'x')
-            continue;
-        else if (c == '/')
-            break;
-        else if (c != ' ')
-            ++res;
-        else --i;
-    }
-    while (res % sizeof(void*))
-        ++res;
-    return res;
+template<size_t nstr>
+constexpr size_t pattern_length(const char(&s)[nstr]) {
+    return pattern_length(s, nstr);
 }
 
 template<size_t nstr, size_t narr>

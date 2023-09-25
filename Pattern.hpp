@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+// Define your own ldisasm in use if using dereference
+extern size_t ldisasm(const void* buffer, size_t buffer_size);
 class Pattern {
 protected:
     uint32_t length_ = 0;
@@ -15,10 +17,7 @@ protected:
         return (get_bits(c[0]) << 4 | get_bits(c[1]));
     }
     constexpr __forceinline char get_bits(char c) const {
-        return (in_range(c, '0', '9') ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA));
-    }
-    constexpr __forceinline bool in_range(char c, char a, char b) const {
-        return (c >= a && c <= b);
+        return ('9' >= c && '0' <= c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
     }
 public:
     Pattern() = default;
@@ -35,13 +34,68 @@ public:
     const bool __forceinline aligned() const {
         return align_;
     }
+    const bool __forceinline relative() const {
+        return rel_;
+    }
     virtual const uint8_t* mask() const = 0;
     virtual const uint8_t* pattern() const = 0;
     template <typename T>
     T find(const uint8_t* bytes, size_t size) const {
         return reinterpret_cast<T>(find(bytes, size));
     }
-    void* find(const uint8_t* bytes, size_t size) const;
+    void* find(const uint8_t* bytes, size_t size) const {
+        void* result = nullptr;
+        const auto pattern = const_cast<uint8_t*>(this->pattern());
+        const auto mask = const_cast<uint8_t*>(this->mask());
+        const auto end = bytes + size - length_;
+        for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += sizeof(void*) : ++i) {
+            bool found = true;
+            for (auto j = 0U; j < length_; j += sizeof(void*)) {
+                const auto data = *reinterpret_cast<uintptr_t*>(pattern + j);
+                const auto msk = *reinterpret_cast<uintptr_t*>(mask + j);
+                const auto mem = *reinterpret_cast<uintptr_t*>(i + j);
+                if (data ^ mem & msk) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                if (deref_ || rel_) {
+                    const auto relative_address = relative_value(i + offset_);
+                    if (deref_) {
+                        auto instrlen = ldisasm(i, end - i);
+                        while (instrlen < offset_)
+                            instrlen += ldisasm(i + instrlen, (end - i) - instrlen);
+                        result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i)
+                            + instrlen + relative_address);
+                    }
+                    else {
+                        result = reinterpret_cast<void*>(relative_address);
+                    }
+                }
+                else {
+                    result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i) + offset_);
+                }
+                break;
+            }
+        }
+        return result;
+    }
 private:
-    const intptr_t relative_value(uint8_t* ptr) const;
+    const intptr_t relative_value(uint8_t* ptr) const {
+        switch (size_) {
+        case 1:
+            return static_cast<intptr_t>(*reinterpret_cast<int8_t*>(ptr));
+        case 2:
+            return static_cast<intptr_t>(*reinterpret_cast<int16_t*>(ptr));
+        case 4:
+            return static_cast<intptr_t>(*reinterpret_cast<int32_t*>(ptr));
+#if ((ULLONG_MAX) != (UINT_MAX))
+        case 8:
+            return static_cast<intptr_t>(*reinterpret_cast<int64_t*>(ptr));
+#endif
+        }
+        // Should never hit here
+        return NULL;
+    }
 };
