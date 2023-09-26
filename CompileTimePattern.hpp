@@ -1,112 +1,101 @@
 #pragma once
 #include "Pattern.hpp"
 #include <array>
-#include <stdexcept>
 
-constexpr size_t pattern_length(const char* s, size_t nstr) {
-    size_t res = 0;
-    for (auto i = 0; i < nstr - 1; i += 2) {
-        auto c = s[i];
-        if (c == 'X' || c == 'x')
-            continue;
-        else if (c == '/')
-            break;
-        else if (c != ' ')
-            ++res;
-        else --i;
+namespace patterns {
+
+    namespace detail {
+        constexpr size_t pattern_length(const char* s, size_t nstr, bool pad = true) {
+            size_t res = 0;
+            for (auto i = 0; i < nstr - 1; i += 2) {
+                auto c = s[i];
+                if (c == 'X' || c == 'x')
+                    continue;
+                else if (c == '/')
+                    break;
+                else if (c != ' ')
+                    ++res;
+                else --i;
+            }
+            while (pad && res % sizeof(void*))
+                ++res;
+            return res;
+        }
+
+        template<size_t nstr>
+        constexpr size_t pattern_length(const char(&s)[nstr], bool pad = true) {
+            return pattern_length(s, nstr, pad);
+        }
+
+#if __cplusplus > 201703L
+        template <size_t nstr>
+        struct const_string {
+            char data[nstr]{};
+            static constexpr size_t length = nstr - 1;
+            static constexpr size_t size = nstr;
+
+            constexpr const_string(const char(&s)[nstr]) {
+                std::copy_n(s, length, data);
+            }
+        };
+#endif
     }
-    while (res % sizeof(void*))
-        ++res;
-    return res;
-}
 
-template<size_t nstr>
-constexpr size_t pattern_length(const char(&s)[nstr]) {
-    return pattern_length(s, nstr);
-}
-
-template<size_t nstr, size_t narr>
-class CompileTimePattern : public Pattern {
-    std::array<uint8_t, narr> m_pattern;
-    std::array<uint8_t, narr> m_mask;
-public:
-    constexpr CompileTimePattern(const char* p) :
-        m_pattern{}, m_mask{}
-    {
-        length_ = narr;
-        auto n = 0;
-        for (auto i = 0; i < nstr; i += 2) {
-            auto ptr = &p[i];
-            if (*ptr == '?') {
+    template<size_t nstr, size_t narr>
+    class CompileTimePattern : public Pattern {
+        std::array<uint8_t, narr> m_pattern;
+        std::array<uint8_t, narr> m_mask;
+    public:
+        constexpr CompileTimePattern(const char* p) :
+            m_pattern{}, m_mask{}
+        {
+            length_ = narr;
+            auto n = 0;
+            for (auto i = 0; i < nstr; i += 2) {
+                auto ptr = &p[i];
+                if (*ptr == '?') {
+                    m_pattern[n] = 0;
+                    m_mask[n] = 0;
+                    ++n;
+                }
+                // Capture where we have our offset marker 'X' at
+                else if (*ptr == 'X' || *ptr == 'x')
+                    offset_ = n;
+                // Break from parsing the pattern, since / at the end starts the flags
+                else if (*ptr == '/') {
+                    ++ptr;
+                    handle_options(ptr);
+                    break;
+                }
+                else if (*ptr != ' ') {
+                    m_pattern[n] = value(ptr);
+                    m_mask[n] = 0xFF;
+                    ++n;
+                }
+                else --i;
+            }
+            while (n % sizeof(void*)) {
                 m_pattern[n] = 0;
                 m_mask[n] = 0;
                 ++n;
             }
-            // Capture where we have our offset marker 'X' at
-            else if (*ptr == 'X' || *ptr == 'x')
-                offset_ = n;
-            // Break from parsing the pattern, since / at the end starts the flags
-            else if (*ptr == '/') {
-                ++ptr;
-                while (*ptr) {
-                    if (*ptr == 'd') {
-                        if (rel_) throw std::logic_error("Cannot use relative and deref together!");
-                        deref_ = true;
-                    }
-                    else if (*ptr == 'r') {
-                        if (deref_) throw std::logic_error("Cannot use relative and deref together!");
-                        rel_ = true;
-                    }
-                    else if (*ptr == 'a')
-                        align_ = true;
-                    // Check the next character to see what size we're reading at this relative address
-                    else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
-                        size_ = *ptr - '0';
-                        if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
-                    }
-                    ++ptr;
-                }
-                break;
-            }
-            else if (*ptr != ' ') {
-                m_pattern[n] = value(ptr);
-                m_mask[n] = 0xFF;
-                ++n;
-            }
-            else --i;
         }
-        while (n % sizeof(void*)) {
-            m_pattern[n] = 0;
-            m_mask[n] = 0;
-            ++n;
+        virtual const uint8_t* pattern() const override {
+            return m_pattern.data();
         }
-    }
-    virtual const uint8_t* pattern() const override {
-        return m_pattern.data();
-    }
-    virtual const uint8_t* mask() const override {
-        return m_mask.data();
-    }
-};
-
-#ifndef COMPILETIME_PATTERN
-#define COMPILETIME_PATTERN(x) CompileTimePattern<sizeof(x)-1, pattern_length(x)>(x)
-#endif
+        virtual const uint8_t* mask() const override {
+            return m_mask.data();
+        }
+    };
+}
 
 #if __cplusplus > 201703L
-template <size_t nstr>
-struct const_string {
-    char data[nstr]{};
-    static constexpr size_t length = nstr - 1;
-    static constexpr size_t size = nstr;
-
-    constexpr const_string(const char(&s)[nstr]) {
-        std::copy_n(s, length, data);
-    }
-};
-
-template<const_string str>
+template<patterns::detail::const_string str>
 constexpr auto operator"" _ctpattern() {
-    return CompileTimePattern<str.length, pattern_length(str.data, str.size)>(str.data);
+    return patterns::CompileTimePattern<str.length, patterns::detail::pattern_length(str.data, str.size)>(str.data);
 }
+#else
+#ifndef COMPILETIME_PATTERN
+#define COMPILETIME_PATTERN(x) patterns::CompileTimePattern<sizeof(x)-1, patterns::detail::pattern_length(x)>(x)
+#endif
 #endif
