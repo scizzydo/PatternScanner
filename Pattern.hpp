@@ -134,11 +134,14 @@ namespace patterns {
         uint32_t offset_ = 0;
         // Added to avoid using the length disassembler if passed in
         uint32_t insn_len_ = 0;
+        bool deref_ = false;
+#ifndef __arm64__
+        // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
         // Defaulting 4 byte relative address reading
         uint32_t size_ = 4;
-        bool deref_ = false;
-        bool align_ = false;
         bool rel_ = false;
+#endif
+        bool align_ = false;
     public:
         Pattern() = default;
         ~Pattern() = default;
@@ -151,11 +154,13 @@ namespace patterns {
         const bool __forceinline deref() const {
             return deref_;
         }
-        const bool __forceinline aligned() const {
-            return align_;
-        }
+#ifndef __arm64__
         const bool __forceinline relative() const {
             return rel_;
+        }
+#endif
+        const bool __forceinline aligned() const {
+            return align_;
         }
         virtual const uint8_t* mask() const = 0;
         virtual const uint8_t* pattern() const = 0;
@@ -168,7 +173,12 @@ namespace patterns {
             const auto pattern = const_cast<uint8_t*>(this->pattern());
             const auto mask = const_cast<uint8_t*>(this->mask());
             const auto end = bytes + size - length_;
+#ifdef __arm64__
+            // arm64 instructions are all 32 bits, so the align scanning will be at the instruction level
+            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += 4 : ++i) {
+#else
             for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += sizeof(void*) : ++i) {
+#endif
                 bool found = true;
                 for (auto j = 0U; j < length_; j += sizeof(void*)) {
                     const auto data = *reinterpret_cast<uintptr_t*>(pattern + j);
@@ -180,8 +190,8 @@ namespace patterns {
                     }
                 }
                 if (found) {
-                    if (deref_ || rel_) {
 #ifdef __arm64__
+                    if (deref_) {
                         auto insn = reinterpret_cast<uint32_t*>(i + offset_);
                         int64_t offset = 0;
                         bool is_sub = false, is_adrp = false;
@@ -204,6 +214,7 @@ namespace patterns {
                         else
                             throw std::logic_error("Failed to decode instruction with defined functions");
 #else
+                    if (deref_ || rel_) {
                         const auto relative_address = relative_value(i + offset_);
                         if (deref_) {
                             size_t instrlen = insn_len_;
@@ -241,6 +252,10 @@ namespace patterns {
         }
         constexpr void handle_options(const char* ptr) {
             while (*ptr) {
+#ifdef __arm64__
+                if (*ptr == 'd')
+                    deref_ = true;
+#else
                 if (*ptr == 'd') {
                     if (rel_) throw std::logic_error("Cannot use relative and deref together!");
                     deref_ = true;
@@ -249,16 +264,20 @@ namespace patterns {
                     if (deref_) throw std::logic_error("Cannot use relative and deref together!");
                     rel_ = true;
                 }
+#endif
                 else if (*ptr == 'a')
                     align_ = true;
+#ifndef __arm64__
                 // Check the next character to see what size we're reading at this relative address
                 else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
                     size_ = *ptr - '0';
                     if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
                 }
+#endif
                 ++ptr;
             }
         }
+#ifndef __arm64__
         const intptr_t relative_value(uint8_t* ptr) const {
             switch (size_) {
             case 1:
@@ -275,5 +294,6 @@ namespace patterns {
             // Should never hit here
             return NULL;
         }
+#endif
     };
 }
