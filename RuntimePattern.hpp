@@ -34,11 +34,13 @@ namespace patterns {
                 }
                 else i--;
             }
+#ifndef __arm64__
             while (n % sizeof(void*)) {
                 m_pattern.push_back(0);
                 m_mask.push_back(0);
                 ++n;
             }
+#endif
             length_ = n;
         }
         RuntimePattern(const char* p) :

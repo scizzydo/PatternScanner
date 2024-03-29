@@ -98,9 +98,9 @@ namespace patterns {
                 *offset = hw ? extract_bitfield<uint32_t>(insn, 16, 5) << hw : extract_bitfield<uint32_t>(insn, 16, 5);
                 if (sf) *sf = (insn >> 31) & 0x1;
                 if (rd) *rd = insn & 0x1f;
-                return 1;
+                return true;
             }
-            return 0;
+            return false;
         }
 
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/ADD--immediate---Add--immediate--
@@ -142,6 +142,12 @@ namespace patterns {
         bool rel_ = false;
 #endif
         bool align_ = false;
+#ifdef __arm64__
+        // arm64 instructions are all 32 bits, so the align scanning will be at the instruction level
+        static constexpr size_t align_size_ = 4;
+#else
+        static constexpr size_t align_size_ = sizeof(void*);
+#endif
     public:
         Pattern() = default;
         ~Pattern() = default;
@@ -173,69 +179,29 @@ namespace patterns {
             const auto pattern = const_cast<uint8_t*>(this->pattern());
             const auto mask = const_cast<uint8_t*>(this->mask());
             const auto end = bytes + size - length_;
-#ifdef __arm64__
-            // arm64 instructions are all 32 bits, so the align scanning will be at the instruction level
-            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += 4 : ++i) {
-#else
-            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += sizeof(void*) : ++i) {
-#endif
+            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += align_size_ : ++i) {
                 bool found = true;
-                for (auto j = 0U; j < length_; j += sizeof(void*)) {
-                    const auto data = *reinterpret_cast<uintptr_t*>(pattern + j);
-                    const auto msk = *reinterpret_cast<uintptr_t*>(mask + j);
-                    const auto mem = *reinterpret_cast<uintptr_t*>(i + j);
-                    if (data ^ mem & msk) {
+#ifdef __arm64__
+                // Doing byte by byte match due to arm being encoded instructions
+                for (auto j = 0U; j < length_; ++j) {
+                    if (mask[j] == 0xFF && pattern[j] != i[j]) {
                         found = false;
                         break;
                     }
                 }
-                if (found) {
-#ifdef __arm64__
-                    if (deref_) {
-                        auto insn = reinterpret_cast<uint32_t*>(i + offset_);
-                        int64_t offset = 0;
-                        bool is_sub = false, is_adrp = false;
-                        unsigned rd = 0, sf = 0, rn = 0;
-                        if (detail::a64_decode_b(*insn, nullptr, &offset))
-                            result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(insn) + offset);
-                        else if (detail::a64_decode_adr(*insn, &is_adrp, &rd, &offset)) {
-                            auto saved_offset = offset;
-                            auto saved_rd = rd;
-                            if (is_adrp && *(insn + 1) && detail::a64_decode_arithmetic(*(insn + 1), &is_sub, &sf, &rd, &rn, &offset) && saved_rd == rd && rn == rd) {
-                                if (is_sub) saved_offset -= (sf ? offset : static_cast<int32_t>(offset));
-                                else saved_offset += (sf ? offset : static_cast<int32_t>(offset));
-                            }
-                            result = reinterpret_cast<void*>(saved_offset);   
-                        }
-                        else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset))
-                            result = reinterpret_cast<void*>(offset);
-                        else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset) || detail::a64_decode_arithmetic(*insn, nullptr, &sf, nullptr, nullptr, &offset))
-                            result = reinterpret_cast<void*>((sf ? offset : static_cast<int32_t>(offset)));
-                        else
-                            throw std::logic_error("Failed to decode instruction with defined functions");
 #else
-                    if (deref_ || rel_) {
-                        const auto relative_address = relative_value(i + offset_);
-                        if (deref_) {
-                            size_t instrlen = insn_len_;
-                            if (!instrlen) {
-                                auto instrlen = ldisasm(i, end - i);
-                                while (instrlen < offset_)
-                                    instrlen += ldisasm(i + instrlen, (end - i) - instrlen);
-                            }
-                            result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i)
-                                + instrlen + relative_address);
-                        }
-                        else {
-                            result = reinterpret_cast<void*>(relative_address);
-                        }
-#endif
+                for (auto j = 0U; j < length_; j += sizeof(void*)) {
+                    const auto data = *reinterpret_cast<uintptr_t*>(pattern + j);
+                    const auto msk = *reinterpret_cast<uintptr_t*>(mask + j);
+                    const auto mem = *reinterpret_cast<uintptr_t*>(i + j);
+                    if ((data ^ mem) & msk) {
+                        found = false;
+                        break;
                     }
-                    else {
-                        result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i) + offset_);
-                    }
-                    break;
                 }
+#endif
+                if (found)
+                    return get_result(i, end);
             }
             return result;
         }
@@ -276,6 +242,67 @@ namespace patterns {
 #endif
                 ++ptr;
             }
+        }
+        void* get_result(uint8_t* address, const uint8_t* end) const {
+#ifdef __arm64__
+            if (deref_) {
+                auto insn = reinterpret_cast<uint32_t*>(address + offset_);
+                int64_t offset = 0;
+                bool is_sub = false, is_adrp = false;
+                unsigned rd = 0, sf = 0, rn = 0;
+                if (detail::a64_decode_b(*insn, nullptr, &offset)) {
+                    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(insn) + offset);
+                }
+                else if (detail::a64_decode_adr(*insn, &is_adrp, &rd, &offset)) {
+                    auto saved_offset = offset;
+                    auto saved_rd = rd;
+                    if (is_adrp && *(insn + 1)) {
+                        unsigned rt = 0;
+                        if (detail::a64_decode_arithmetic(*(insn + 1), &is_sub, &sf, &rd, &rn, &offset)) {
+                            if (saved_rd == rd && rn == rd) {
+                                uint64_t val = (sf ? offset : static_cast<uint32_t>(offset));
+                                if (is_sub) saved_offset -= val;
+                                else saved_offset += val;
+                            }
+                        } else if (detail::a64_decode_ldr(*(insn + 1), &rn, &rt, &offset)) {
+                            if (saved_rd == rn && rn == rt)
+                                saved_offset += (offset < 0 ? -offset : offset);
+                        }
+                    }
+                    return reinterpret_cast<void*>((is_adrp ? 
+                            (reinterpret_cast<uintptr_t>(insn) & ~0xfff) : reinterpret_cast<uintptr_t>(insn)) + saved_offset);
+                }
+                else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset)) {
+                    return reinterpret_cast<void*>(offset);
+                }
+                else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset)
+                    || detail::a64_decode_arithmetic(*insn, nullptr, &sf, nullptr, nullptr, &offset)) {
+                    return reinterpret_cast<void*>((sf ? offset : static_cast<int32_t>(offset)));
+                }
+                else
+                    throw std::logic_error("Failed to decode instruction with defined functions");
+#else
+            if (deref_ || rel_) {
+                const auto relative_address = relative_value(address + offset_);
+                if (deref_) {
+                    size_t instrlen = insn_len_;
+                    if (!instrlen) {
+                        auto instrlen = ldisasm(address, end - address);
+                        while (instrlen < offset_)
+                            instrlen += ldisasm(address + instrlen, (end - address) - instrlen);
+                    }
+                    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address)
+                        + instrlen + relative_address);
+                }
+                else {
+                    return reinterpret_cast<void*>(relative_address);
+                }
+#endif
+            }
+            else {
+                return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address) + offset_);
+            }
+            return nullptr;
         }
 #ifndef __arm64__
         const intptr_t relative_value(uint8_t* ptr) const {

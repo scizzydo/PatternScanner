@@ -17,8 +17,10 @@ namespace patterns {
                     ++res;
                 else --i;
             }
+#ifndef __arm64__
             while (pad && res % sizeof(void*))
                 ++res;
+#endif
             return res;
         }
 
@@ -74,11 +76,13 @@ namespace patterns {
                 }
                 else --i;
             }
+#ifndef __arm64__
             while (n % sizeof(void*)) {
                 m_pattern[n] = 0;
                 m_mask[n] = 0;
                 ++n;
             }
+#endif
         }
         virtual const uint8_t* pattern() const override {
             return m_pattern.data();
