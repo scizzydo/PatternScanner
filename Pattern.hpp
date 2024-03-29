@@ -2,14 +2,138 @@
 #include <cstdint>
 #include <stdexcept>
 
+#ifndef _MSVC_VER
+#define __forceinline inline __attribute__((always_inline))
+#endif
+
 namespace patterns {
     // Define your own ldisasm in use if using dereference
     extern size_t ldisasm(const void* buffer, size_t buffer_size);
+
+#ifdef __arm64__
+    namespace detail {
+        template<typename T>
+        T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
+            constexpr size_t int_width = sizeof(int32_t) * 8;
+            return (static_cast<T>(insn) << (int_width - (offset + width))) >> (int_width - width);
+        }
+
+        bool __forceinline decode_masked_match(uint32_t insn, uint32_t mask, uint32_t pattern) {
+            return (insn & mask) == pattern;
+        }
+
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/B--Branch-
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/BL--Branch-with-Link-
+        bool a64_decode_b(uint32_t insn, bool* is_bl, int64_t* offset) {
+            // x001 01?? ???? ???? ???? ???? ???? ????
+            // 1 - BL
+            // 0 - B
+            if (decode_masked_match(insn, 0b0111'1100'0000'0000'0000'0000'0000'0000, 0b0001'0100'0000'0000'0000'0000'0000'0000)) {
+                if (is_bl) *is_bl = (insn >> 31) & 0x1;
+                *offset = extract_bitfield<int32_t>(insn, 26, 0) << 2;
+                return true;
+            }
+            return false;
+        }
+        
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/ADR--Form-PC-relative-address-
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/ADRP--Form-PC-relative-address-to-4KB-page-
+        bool a64_decode_adr(uint32_t insn, bool* is_adrp, unsigned* rd, int64_t* offset) {
+            // rd - destination register
+            // x??1 0000 ???? ???? ???? ???? ???? ????
+            // 1 - ADRP
+            // 0 - ADR
+            // bits 30 & 29 - immlo
+            // bits 23 -> 5 - immhi
+            // bits 4 -> 0 - rd
+            if (decode_masked_match(insn, 0b0001'1111'0000'0000'0000'0000'0000'0000, 0b0001'0000'0000'0000'0000'0000'0000'0000)) {
+                if (rd) *rd = insn & 0x1f;
+                uint32_t immlo = (insn >> 29) & 0x3;
+                int32_t immhi = extract_bitfield<int32_t>(insn, 19, 5) << 2;
+                auto adrp = (insn >> 31) & 0x1;
+                if (is_adrp) *is_adrp = adrp;
+                *offset = (adrp ? (immhi | immlo) * 4096 : (immhi | immlo));
+                return true;
+            }
+            return false;
+        }
+
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/LDR--immediate---Load-Register--immediate--
+        bool a64_decode_ldr(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
+            // rn - name of general-purpose base register or stack pointer
+            // rt - name of general-purpose register to be transferred
+            // Post-index & Pre-index masks
+            // 1x11 1000 010? ???? ???? x1?? ???? ????
+            //  1 - 64 bit              1 - pre-index
+            //  0 - 32 bit              0 - post-index
+            if (decode_masked_match(insn, 0b1011'1111'1110'0000'0000'0100'0000'0000, 0b1011'1000'0100'0000'0000'0100'0000'0000)) {
+                // Have not tested this yet
+                *offset = extract_bitfield<int32_t>(insn, 9, 12);
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            // Unsigned offset mask
+            // 1x11 1001 01?? ???? ???? ???? ???? ????
+            //  1 - 64 bit
+            //  0 - 32 bit
+            if (decode_masked_match(insn, 0b1011'1111'1100'0000'0000'0000'0000'0000, 0b1011'1001'0100'0000'0000'0000'0000'0000)) {
+                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << (insn >> 30);
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            return false;
+        }
+
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/MOVZ--Move-wide-with-zero-
+        bool a64_decode_movz(uint32_t insn, unsigned* sf, unsigned* rd, int64_t* offset) {
+            // sf - 1 for 64 bit, 0 for 32 bit
+            // rd - destination register
+            // x101 0010 1xx? ???? ???? ???? ???? ????
+            // 1 = 64 bit 0x - shift ammount
+            // 0 = 32 bit
+            if (decode_masked_match(insn, 0b0111'0010'1000'0000'0000'0000'0000'0000, 0b0101'0010'1000'0000'0000'0000'0000'0000)) {
+                auto hw = (insn >> 21) & 3;
+                *offset = hw ? extract_bitfield<uint32_t>(insn, 16, 5) << hw : extract_bitfield<uint32_t>(insn, 16, 5);
+                if (sf) *sf = (insn >> 31) & 0x1;
+                if (rd) *rd = insn & 0x1f;
+                return 1;
+            }
+            return 0;
+        }
+
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/ADD--immediate---Add--immediate--
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/SUB--immediate---Subtract--immediate--
+        bool a64_decode_arithmetic(uint32_t insn, bool* is_sub, unsigned* sf, unsigned* rd, unsigned* rn, int64_t* offset) {
+            // rd - destination register
+            // rn - source register
+            // sf - 1 for 64 bit, 0 for 32 bit
+            // ?x01 0001 0??? ???? ???? ???? ???? ????
+            //  1 = subtraction
+            //  0 = addition
+            if (decode_masked_match(insn, 0b0011'1111'1000'0000'0000'0000'0000'0000, 0b0001'0001'0000'0000'0000'0000'0000'0000)) {
+                if (sf) *sf = (insn >> 31) & 0x1;
+                if (rd) *rd = insn & 0x1f;
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (is_sub) *is_sub = (insn >> 30) & 0x1;
+                uint32_t imm12 = extract_bitfield<uint32_t>(insn, 12, 10);
+                // sh = 1 is LSL#12
+                auto sh = (insn >> 22) & 0x1;
+                *offset = (sh ? (imm12 << 12) : imm12);
+                return true;
+            }
+            return false;
+        }
+    }
+#endif
 
     class Pattern {
     protected:
         uint32_t length_ = 0;
         uint32_t offset_ = 0;
+        // Added to avoid using the length disassembler if passed in
+        uint32_t insn_len_ = 0;
         // Defaulting 4 byte relative address reading
         uint32_t size_ = 4;
         bool deref_ = false;
@@ -57,17 +181,44 @@ namespace patterns {
                 }
                 if (found) {
                     if (deref_ || rel_) {
+#ifdef __arm64__
+                        auto insn = reinterpret_cast<uint32_t*>(i + offset_);
+                        int64_t offset = 0;
+                        bool is_sub = false, is_adrp = false;
+                        unsigned rd = 0, sf = 0, rn = 0;
+                        if (detail::a64_decode_b(*insn, nullptr, &offset))
+                            result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(insn) + offset);
+                        else if (detail::a64_decode_adr(*insn, &is_adrp, &rd, &offset)) {
+                            auto saved_offset = offset;
+                            auto saved_rd = rd;
+                            if (is_adrp && *(insn + 1) && detail::a64_decode_arithmetic(*(insn + 1), &is_sub, &sf, &rd, &rn, &offset) && saved_rd == rd && rn == rd) {
+                                if (is_sub) saved_offset -= (sf ? offset : static_cast<int32_t>(offset));
+                                else saved_offset += (sf ? offset : static_cast<int32_t>(offset));
+                            }
+                            result = reinterpret_cast<void*>(saved_offset);   
+                        }
+                        else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset))
+                            result = reinterpret_cast<void*>(offset);
+                        else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset) || detail::a64_decode_arithmetic(*insn, nullptr, &sf, nullptr, nullptr, &offset))
+                            result = reinterpret_cast<void*>((sf ? offset : static_cast<int32_t>(offset)));
+                        else
+                            throw std::logic_error("Failed to decode instruction with defined functions");
+#else
                         const auto relative_address = relative_value(i + offset_);
                         if (deref_) {
-                            auto instrlen = ldisasm(i, end - i);
-                            while (instrlen < offset_)
-                                instrlen += ldisasm(i + instrlen, (end - i) - instrlen);
+                            size_t instrlen = insn_len_;
+                            if (!instrlen) {
+                                auto instrlen = ldisasm(i, end - i);
+                                while (instrlen < offset_)
+                                    instrlen += ldisasm(i + instrlen, (end - i) - instrlen);
+                            }
                             result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i)
                                 + instrlen + relative_address);
                         }
                         else {
                             result = reinterpret_cast<void*>(relative_address);
                         }
+#endif
                     }
                     else {
                         result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i) + offset_);
