@@ -102,8 +102,10 @@ namespace patterns {
             // 1x11 1001 01?? ???? ???? ???? ???? ????
             //  1 - 64 bit
             //  0 - 32 bit
-            if (decode_masked_match(insn, 0b1011'1111'1100'0000'0000'0000'0000'0000, 0b1011'1001'0100'0000'0000'0000'0000'0000)) {
+            if (decode_masked_match(insn, 0b1011'1011'1100'0000'0000'0000'0000'0000, 0b1011'1001'0100'0000'0000'0000'0000'0000)) {
                 *offset = extract_bitfield<uint32_t>(insn, 12, 10) << (insn >> 30);
+                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
+                //auto vr = (insn >> 26) & 1;
                 if (rn) *rn = (insn >> 5) & 0x1f;
                 if (rt) *rt = insn & 0x1f;
                 return true;
@@ -281,25 +283,32 @@ namespace patterns {
                 else if (detail::a64_decode_adr(*insn, &is_adrp, &rd, &offset)) {
                     auto saved_offset = offset;
                     auto saved_rd = rd;
-                    if (is_adrp && *(insn + 1)) {
-                        unsigned rt = 0;
-                        if (detail::a64_decode_arithmetic(*(insn + 1), &is_sub, &sf, &rd, &rn, &offset)) {
-                            if (saved_rd == rd && rn == rd) {
-                                uint64_t val = (sf ? offset : static_cast<uint32_t>(offset));
-                                if (is_sub) saved_offset -= val;
-                                else saved_offset += val;
+                    auto curr_insn = insn + 1;
+                    if (is_adrp) {
+                        while (*curr_insn) {
+                            unsigned rt = 0;
+                            if (detail::a64_decode_arithmetic(*curr_insn, &is_sub, &sf, &rd, &rn, &offset)) {
+                                if (saved_rd == rd && rn == rd) {
+                                    uint64_t val = (sf ? offset : static_cast<uint32_t>(offset));
+                                    if (is_sub) saved_offset -= val;
+                                    else saved_offset += val;
+                                    ++curr_insn;
+                                    continue;
+                                }
+                            } else if (detail::a64_decode_ldr(*curr_insn, &rn, &rt, &offset) 
+                                    || detail::a64_decode_ldrh(*curr_insn, &rn, &rt, &offset)) {
+                                if (saved_rd == rn) {
+                                    saved_offset += (offset < 0 ? -offset : offset);
+                                }
                             }
-                        } else if (detail::a64_decode_ldr(*(insn + 1), &rn, &rt, &offset) 
-                                || detail::a64_decode_ldrh(*(insn + 1), &rn, &rt, &offset)) {
-                            if (saved_rd == rt)
-                                saved_offset += (offset < 0 ? -offset : offset);
+                            break;
                         }
                     }
-                    return reinterpret_cast<void*>((is_adrp ? 
-                            (reinterpret_cast<uintptr_t>(insn) & ~0xfff) : reinterpret_cast<uintptr_t>(insn)) + saved_offset);
+                    const auto from_addr = is_adrp ? reinterpret_cast<uintptr_t>(insn) & ~0xfff : reinterpret_cast<uintptr_t>(insn);
+                    return reinterpret_cast<void*>(from_addr + saved_offset);
                 }
                 else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset) 
-                        || detail::a64_decode_ldrh(*(insn + 1), nullptr, nullptr, &offset)) {
+                        || detail::a64_decode_ldrh(*insn, nullptr, nullptr, &offset)) {
                     return reinterpret_cast<void*>(offset);
                 }
                 else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset)
