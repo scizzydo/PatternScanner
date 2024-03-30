@@ -58,6 +58,31 @@ namespace patterns {
             return false;
         }
 
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/LDRH--immediate---Load-Register-Halfword--immediate--
+        bool a64_decode_ldrh(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
+            // rn - name of general-purpose base register or stack pointer
+            // rt - name of general-purpose base register to be transfered
+            // Post-index & Pre-index masks
+            // 0111 1000 010? ???? ???? x1?? ???? ????
+            //                          1 - pre-index
+            //                          0 - post-index
+            if (decode_masked_match(insn, 0b1111'1111'1110'0000'0000'0100'0000'0000, 0b0111'1000'0100'0000'0000'0100'0000'0000)) {
+                *offset = extract_bitfield<int32_t>(insn, 9, 12);
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            // Unsigned offset mask
+            // 0111 1001 01?? ???? ???? ???? ???? ????
+            if (decode_masked_match(insn, 0b1111'1111'1100'0000'0000'0000'0000'0000, 0b0111'1001'0100'0000'0000'0000'0000'0000)) {
+                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << 1;
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            return false;
+        }
+
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/LDR--immediate---Load-Register--immediate--
         bool a64_decode_ldr(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
             // rn - name of general-purpose base register or stack pointer
@@ -264,15 +289,17 @@ namespace patterns {
                                 if (is_sub) saved_offset -= val;
                                 else saved_offset += val;
                             }
-                        } else if (detail::a64_decode_ldr(*(insn + 1), &rn, &rt, &offset)) {
-                            if (saved_rd == rn && rn == rt)
+                        } else if (detail::a64_decode_ldr(*(insn + 1), &rn, &rt, &offset) 
+                                || detail::a64_decode_ldrh(*(insn + 1), &rn, &rt, &offset)) {
+                            if (saved_rd == rt)
                                 saved_offset += (offset < 0 ? -offset : offset);
                         }
                     }
                     return reinterpret_cast<void*>((is_adrp ? 
                             (reinterpret_cast<uintptr_t>(insn) & ~0xfff) : reinterpret_cast<uintptr_t>(insn)) + saved_offset);
                 }
-                else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset)) {
+                else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset) 
+                        || detail::a64_decode_ldrh(*(insn + 1), nullptr, nullptr, &offset)) {
                     return reinterpret_cast<void*>(offset);
                 }
                 else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset)
