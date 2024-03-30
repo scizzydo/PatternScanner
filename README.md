@@ -14,7 +14,9 @@ XORPattern creates the pattern & mask along with a keys array during compile tim
 
 If using C++20 there is a user defined literal for the compile time pattern. 
 
-*You must define the patterns::detail::ldissasm*
+*Development on arm is very new and being tested as I go, if issues are found please give a working example of bytes around the area needed*
+
+*You must define the patterns::detail::ldissasm if you intend to use without insn_len_*
 ```c++
 size_t patterns::ldisasm(const void* buffer, size_t buffer_size) {
     // Just return 0 if not using the dereference, otherwise place in the code from another library/source to obtain the instructions length
@@ -25,9 +27,10 @@ size_t patterns::ldisasm(const void* buffer, size_t buffer_size) {
 #### Examples:
 ```c++
 // Scan will read the relative value from the X offset as 4 bytes
-constexpr auto compiletime_pattern = "AB CC 11 22 33 44 AB 6D X EF BE AD DE /r4"_ctpattern;
+constexpr auto compiletime_pattern = "AB CC 11 22 33 44 AB 6D X12 EF BE AD DE /r4"_ctpattern;
 // Scan will read the address from where the marked X is pointed to (defaults as a relative address), and perform the scan byte aligned (4 - 32bit, 8 - 64bit)
-constexpr auto xor_pattern = "FE ED FA CE E8 X ? ? ? ? EF BE AD DE /da"_xorpattern;
+// This also uses the instruction len (notice 9 after X). This tells it during the dereference to start the RIP after the E8 instruction
+constexpr auto xor_pattern = "FE ED FA CE E8 X9 ? ? ? ? EF BE AD DE /da"_xorpattern;
 // Scan will read the address from where the marked X is pointed to (as a single byte; i.e. short jump)
 auto runtime_pattern = "BA BE CA FE 72 X ? 11 22 /d1"_rtpattern
 ```
