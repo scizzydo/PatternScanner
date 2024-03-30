@@ -28,6 +28,13 @@ namespace patterns {
             return (insn & mask) == pattern;
         }
 
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/NOP--No-Operation-
+        bool a64_decode_nop(uint32_t insn) {
+            if (insn == 0b1101'0101'0000'0011'0010'0000'0001'1111)
+                return true;
+            return false;
+        }
+
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/B--Branch-
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/BL--Branch-with-Link-
         bool a64_decode_b(uint32_t insn, bool* is_bl, int64_t* offset) {
@@ -301,6 +308,10 @@ namespace patterns {
                                     ++curr_insn;
                                     continue;
                                 }
+                            // Placing this here for sneaky programs that want to put nops in between ADRL
+                            } else if (detail::a64_decode_nop(*curr_insn)) {
+                                ++curr_insn;
+                                continue;
                             } else if (detail::a64_decode_ldr(*curr_insn, &rn, &rt, &offset) 
                                     || detail::a64_decode_ldrh(*curr_insn, &rn, &rt, &offset)) {
                                 if (saved_rd == rn) {
