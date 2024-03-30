@@ -27,7 +27,7 @@ size_t patterns::ldisasm(const void* buffer, size_t buffer_size) {
 #### Examples:
 ```c++
 // Scan will read the relative value from the X offset as 4 bytes
-constexpr auto compiletime_pattern = "AB CC 11 22 33 44 AB 6D X12 EF BE AD DE /r4"_ctpattern;
+constexpr auto compiletime_pattern = "AB CC 11 22 33 44 AB 6D X EF BE AD DE /r4"_ctpattern;
 // Scan will read the address from where the marked X is pointed to (defaults as a relative address), and perform the scan byte aligned (4 - 32bit, 8 - 64bit)
 // This also uses the instruction len (notice 9 after X). This tells it during the dereference to start the RIP after the E8 instruction
 constexpr auto xor_pattern = "FE ED FA CE E8 X9 ? ? ? ? EF BE AD DE /da"_xorpattern;
