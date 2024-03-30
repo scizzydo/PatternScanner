@@ -10,8 +10,14 @@ namespace patterns {
     // Define your own ldisasm in use if using dereference
     extern size_t ldisasm(const void* buffer, size_t buffer_size);
 
-#ifdef __arm64__
     namespace detail {
+        constexpr bool __forceinline is_digit(char c) {
+            return c <= '9' && c >= '0';
+        }
+        constexpr int32_t stoi(const char* str, int32_t value = 0) {
+            return *str && is_digit(*str) ? stoi(str + 1, (*str - '0') + value * 10) : value;
+        }
+#ifdef __arm64__
         template<typename T>
         T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
             constexpr size_t int_width = sizeof(int32_t) * 8;
@@ -152,15 +158,15 @@ namespace patterns {
             }
             return false;
         }
-    }
 #endif
+    }
 
     class Pattern {
     protected:
         uint32_t length_ = 0;
         uint32_t offset_ = 0;
-        // Added to avoid using the length disassembler if passed in
         uint32_t insn_len_ = 0;
+        // Added to avoid using the length disassembler if passed in
         bool deref_ = false;
 #ifndef __arm64__
         // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
@@ -241,7 +247,7 @@ namespace patterns {
             return (get_bits(c[0]) << 4 | get_bits(c[1]));
         }
         constexpr __forceinline char get_bits(char c) const {
-            return ('9' >= c && '0' <= c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
+            return detail::is_digit(c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
         }
         constexpr void handle_options(const char* ptr) {
             while (*ptr) {
@@ -358,5 +364,11 @@ namespace patterns {
             return NULL;
         }
 #endif
+        constexpr int32_t get_inst_len_opt(const char* ptr) const {
+            const auto c = *ptr;
+            if (c == ' ' || c > '9' || c < '0')
+                return 0;
+            return detail::stoi(ptr);
+        }
     };
 }

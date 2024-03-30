@@ -19,8 +19,14 @@ namespace patterns {
                     ++n;
                 }
                 // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x')
+                else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
+                    if (p[i + 1] != ' ') {
+                        insn_len_ = get_inst_len_opt(&p[++i]);
+                        while (p[i + 1] != ' ')
+                            ++i;
+                    }
+                }
                 // Break from parsing the pattern, since / at the end starts the flags
                 else if (*ptr == '/') {
                     ++ptr;
