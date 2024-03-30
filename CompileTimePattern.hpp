@@ -9,16 +9,21 @@ namespace patterns {
             size_t res = 0;
             for (auto i = 0; i < nstr - 1; i += 2) {
                 auto c = s[i];
-                if (c == 'X' || c == 'x')
+                if (c == 'X' || c == 'x') {
+                    while (s[i + 1] != ' ')
+                        ++i;
                     continue;
+                }
                 else if (c == '/')
                     break;
                 else if (c != ' ')
                     ++res;
                 else --i;
             }
+#ifndef __arm64__
             while (pad && res % sizeof(void*))
                 ++res;
+#endif
             return res;
         }
 
@@ -53,14 +58,20 @@ namespace patterns {
             auto n = 0;
             for (auto i = 0; i < nstr; i += 2) {
                 auto ptr = &p[i];
-                if (*ptr == '?') {
+                if (p[i] == '?') {
                     m_pattern[n] = 0;
                     m_mask[n] = 0;
                     ++n;
                 }
                 // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x')
+                else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
+                    if (p[i + 1] != ' ') {
+                        insn_len_ = get_inst_len_opt(&p[++i]);
+                        while (p[i + 1] != ' ')
+                            ++i;
+                    }
+                }
                 // Break from parsing the pattern, since / at the end starts the flags
                 else if (*ptr == '/') {
                     ++ptr;
@@ -74,11 +85,13 @@ namespace patterns {
                 }
                 else --i;
             }
+#ifndef __arm64__
             while (n % sizeof(void*)) {
                 m_pattern[n] = 0;
                 m_mask[n] = 0;
                 ++n;
             }
+#endif
         }
         virtual const uint8_t* pattern() const override {
             return m_pattern.data();

@@ -47,8 +47,14 @@ namespace patterns {
                     ++n;
                 }
                 // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x')
+                else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
+                    if (p[i + 1] != ' ') {
+                        insn_len_ = get_inst_len_opt(&p[++i]);
+                        while (p[i + 1] != ' ')
+                            ++i;
+                    }
+                }
                 // Break from parsing the pattern, since / at the end starts the flags
                 else if (*ptr == '/') {
                     ++ptr;
@@ -76,7 +82,7 @@ namespace patterns {
         virtual void* find(const uint8_t* bytes, size_t size) const override {
             void* result = nullptr;
             const auto end = bytes + size - length_;
-            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += sizeof(void*) : ++i) {
+            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += align_size_ : ++i) {
                 bool found = true;
                 for (auto j = 0U; j < length_; ++j) {
                     if (mask_[j] == 0xFF && (*this)[j] != i[j]) {
@@ -84,25 +90,8 @@ namespace patterns {
                         break;
                     }
                 }
-                if (found) {
-                    if (deref_ || rel_) {
-                        const auto relative_address = relative_value(i + offset_);
-                        if (deref_) {
-                            auto instrlen = ldisasm(i, end - i);
-                            while (instrlen < offset_)
-                                instrlen += ldisasm(i + instrlen, (end - i) - instrlen);
-                            result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i)
-                                + instrlen + relative_address);
-                        }
-                        else {
-                            result = reinterpret_cast<void*>(relative_address);
-                        }
-                    }
-                    else {
-                        result = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(i) + offset_);
-                    }
-                    break;
-                }
+                if (found) 
+                    return get_result(i, end);
             }
             return result;
         }

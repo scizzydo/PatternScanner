@@ -19,8 +19,14 @@ namespace patterns {
                     ++n;
                 }
                 // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x')
+                else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
+                    if (p[i + 1] != ' ') {
+                        insn_len_ = get_inst_len_opt(&p[++i]);
+                        while (p[i + 1] != ' ')
+                            ++i;
+                    }
+                }
                 // Break from parsing the pattern, since / at the end starts the flags
                 else if (*ptr == '/') {
                     ++ptr;
@@ -34,11 +40,13 @@ namespace patterns {
                 }
                 else i--;
             }
+#ifndef __arm64__
             while (n % sizeof(void*)) {
                 m_pattern.push_back(0);
                 m_mask.push_back(0);
                 ++n;
             }
+#endif
             length_ = n;
         }
         RuntimePattern(const char* p) :
