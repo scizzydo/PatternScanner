@@ -7,6 +7,9 @@ namespace patterns {
     namespace detail {
         constexpr size_t pattern_length(const char* s, size_t nstr, bool pad = true) {
             size_t res = 0;
+#ifdef __arm64__
+            bool align = false;
+#endif
             for (auto i = 0; i < nstr - 1; i += 2) {
                 auto c = s[i];
                 if (c == 'X' || c == 'x') {
@@ -14,13 +17,23 @@ namespace patterns {
                         ++i;
                     continue;
                 }
-                else if (c == '/')
+                else if (c == '/') {
+                    while (i < nstr - 1 && (c = s[++i])) {
+                        if (c == 'a') {
+                            align = true;
+                            break;
+                        }
+                    }
                     break;
+                }
                 else if (c != ' ')
                     ++res;
                 else --i;
             }
-#ifndef __arm64__
+#ifdef __arm64__
+            while (pad && align && res % sizeof(uint32_t))
+                ++res;
+#else
             while (pad && res % sizeof(void*))
                 ++res;
 #endif
@@ -85,7 +98,13 @@ namespace patterns {
                 }
                 else --i;
             }
-#ifndef __arm64__
+#ifdef __arm64__
+            while (align_ && n % align_size_) {
+                m_pattern[n] = 0;
+                m_mask[n] = 0;
+                ++n;
+            }
+#else
             while (n % sizeof(void*)) {
                 m_pattern[n] = 0;
                 m_mask[n] = 0;

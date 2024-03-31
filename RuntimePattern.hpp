@@ -40,7 +40,13 @@ namespace patterns {
                 }
                 else i--;
             }
-#ifndef __arm64__
+#ifdef __arm64__
+            while (align_ && n % align_size_) {
+                m_pattern.push_back(0);
+                m_mask.push_back(0);
+                ++n;
+            }
+#else
             while (n % sizeof(void*)) {
                 m_pattern.push_back(0);
                 m_mask.push_back(0);

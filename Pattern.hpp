@@ -126,6 +126,37 @@ namespace patterns {
             return false;
         }
 
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/STR--immediate---Store-Register--immediate--
+        bool a64_decode_str(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
+            // rn - name of general-purpose base register or stack pointer
+            // rt - name of general-purpose register to be transferred
+            // Post-index & Pre-index masks
+            // 1x11 1000 000? ???? ???? x1?? ???? ????
+            //  1 - 64 bit              1 - pre-index
+            //  0 - 32 bit              0 - post-index
+            if (decode_masked_match(insn, 0b1011'1011'1110'0000'0000'0100'0000'0000, 0b1011'1000'0000'0000'0000'0100'0000'0000)) {
+                *offset = extract_bitfield<int32_t>(insn, 9, 12);
+                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
+                //auto vr = (insn >> 26) & 1;
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            // Unsigned offset mask
+            // 1x11 1000 000? ???? ???? ???? ???? ????
+            //  1 - 64 bit
+            //  0 - 32 bit
+            if (decode_masked_match(insn, 0b1011'1011'1110'0000'0000'0000'0000'0000, 0b1011'1001'0000'0000'0000'0000'0000'0000)) {
+                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << (insn >> 30);
+                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
+                //auto vr = (insn >> 26) & 1;
+                if (rn) *rn = (insn >> 5) & 0x1f;
+                if (rt) *rt = insn & 0x1f;
+                return true;
+            }
+            return false;
+        } 
+
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/MOVZ--Move-wide-with-zero-
         bool a64_decode_movz(uint32_t insn, unsigned* sf, unsigned* rd, int64_t* offset) {
             // sf - 1 for 64 bit, 0 for 32 bit
@@ -133,7 +164,7 @@ namespace patterns {
             // x101 0010 1xx? ???? ???? ???? ???? ????
             // 1 = 64 bit 0x - shift ammount
             // 0 = 32 bit
-            if (decode_masked_match(insn, 0b0111'0010'1000'0000'0000'0000'0000'0000, 0b0101'0010'1000'0000'0000'0000'0000'0000)) {
+            if (decode_masked_match(insn, 0b0111'1111'1000'0000'0000'0000'0000'0000, 0b0101'0010'1000'0000'0000'0000'0000'0000)) {
                 auto hw = (insn >> 21) & 3;
                 *offset = hw ? extract_bitfield<uint32_t>(insn, 16, 5) << hw : extract_bitfield<uint32_t>(insn, 16, 5);
                 if (sf) *sf = (insn >> 31) & 0x1;
@@ -222,11 +253,23 @@ namespace patterns {
             for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += align_size_ : ++i) {
                 bool found = true;
 #ifdef __arm64__
-                // Doing byte by byte match due to arm being encoded instructions
-                for (auto j = 0U; j < length_; ++j) {
-                    if (mask[j] == 0xFF && pattern[j] != i[j]) {
-                        found = false;
-                        break;
+                // Doing byte by byte match due to arm being encoded instructions, unless specified to align scan
+                if (align_) {
+                    for (auto j = 0U; j < length_; j += align_size_) {
+                        const auto data = *reinterpret_cast<uint32_t*>(pattern + j);
+                        const auto msk = *reinterpret_cast<uint32_t*>(mask + j);
+                        const auto mem = *reinterpret_cast<uint32_t*>(i + j);
+                        if ((data ^ mem) & msk) {
+                            found = false;
+                            break;
+                        }
+                    }
+                } else {
+                    for (auto j = 0U; j < length_; ++j) {
+                        if (mask[j] == 0xFF && pattern[j] != i[j]) {
+                            found = false;
+                            break;
+                        }
                     }
                 }
 #else
@@ -313,7 +356,8 @@ namespace patterns {
                                 ++curr_insn;
                                 continue;
                             } else if (detail::a64_decode_ldr(*curr_insn, &rn, &rt, &offset) 
-                                    || detail::a64_decode_ldrh(*curr_insn, &rn, &rt, &offset)) {
+                                    || detail::a64_decode_ldrh(*curr_insn, &rn, &rt, &offset)
+                                    || detail::a64_decode_str(*curr_insn, &rn, &rt, &offset)) {
                                 if (saved_rd == rn) {
                                     saved_offset += (offset < 0 ? -offset : offset);
                                 }
@@ -325,7 +369,8 @@ namespace patterns {
                     return reinterpret_cast<void*>(from_addr + saved_offset);
                 }
                 else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset) 
-                        || detail::a64_decode_ldrh(*insn, nullptr, nullptr, &offset)) {
+                        || detail::a64_decode_ldrh(*insn, nullptr, nullptr, &offset)
+                        || detail::a64_decode_str(*insn, nullptr, nullptr, &offset)) {
                     return reinterpret_cast<void*>(offset);
                 }
                 else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset)
