@@ -7,8 +7,10 @@
 #endif
 
 namespace patterns {
+#ifdef PATTERNSCAN_LDISASM
     // Define your own ldisasm in use if using dereference
     extern size_t ldisasm(const void* buffer, size_t buffer_size);
+#endif
 
     namespace detail {
         constexpr bool __forceinline is_digit(char c) {
@@ -383,11 +385,17 @@ namespace patterns {
             if (deref_ || rel_) {
                 const auto relative_address = relative_value(address + offset_);
                 if (deref_) {
-                    size_t instrlen = insn_len_;
-                    if (!instrlen) {
-                        auto instrlen = ldisasm(address, end - address);
+                    size_t instrlen = 0;
+                    if (!insn_len_) {
+#ifdef PATTERNSCAN_LDISASM
+                        instrlen = ldisasm(address, end - address);
                         while (instrlen < offset_)
                             instrlen += ldisasm(address + instrlen, (end - address) - instrlen);
+#else
+                        throw std::logic_error("Dereferencing specified without a length disassembler and/or instruction length defined!");
+#endif
+                    } else {
+                        instrlen = offset_ + insn_len_;
                     }
                     return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address)
                         + instrlen + relative_address);
