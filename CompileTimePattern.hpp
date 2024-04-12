@@ -18,12 +18,14 @@ namespace patterns {
                     continue;
                 }
                 else if (c == '/') {
+#ifdef __arm64__
                     while (i < nstr - 1 && (c = s[++i])) {
                         if (c == 'a') {
                             align = true;
                             break;
                         }
                     }
+#endif
                     break;
                 }
                 else if (c != ' ')
