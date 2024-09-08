@@ -17,7 +17,8 @@ If using C++20 there is a user defined literal for the compile time pattern.
 *Development on arm is very new and being tested as I go, if issues are found please give a working example of bytes around the area needed*
 
 *You must define the patterns::detail::ldissasm if you intend to use without insn_len_ and also define PATTERNSCAN_LDISASM*
-*Length disassembler is not required if using the X<val> method of the pattern*
+
+*Length disassembler is not required if using the X\<val\> method of the pattern*
 ```c++
 size_t patterns::ldisasm(const void* buffer, size_t buffer_size) {
     // Just return 0 if not using the dereference, otherwise place in the code from another library/source to obtain the instructions length
