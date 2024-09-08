@@ -40,5 +40,6 @@ constexpr auto compiletime_pattern = "AB CC 11 22 33 44 AB 6D X EF BE AD DE /r4"
 // This also uses the instruction len (notice 4 after X). This tells it during the dereference to start the RIP after the E8 instruction
 constexpr auto xor_pattern = "FE ED FA CE E8 X4 ? ? ? ? EF BE AD DE /da"_xorpattern;
 // Scan will read the address from where the marked X is pointed to (as a single byte; i.e. short jump)
+// Pattern assumes ldisasm is defined, to get the instruction length rather than X1
 auto runtime_pattern = "BA BE CA FE 72 X ? 11 22 /d1"_rtpattern
 ```
