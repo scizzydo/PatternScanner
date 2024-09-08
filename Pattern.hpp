@@ -227,6 +227,8 @@ namespace patterns {
         uint32_t offset_ = 0;
         bool deref_ = false;
 #ifndef __arm64__
+        // Remaining bytes from the offset when used in dereferencing
+        uint32_t insn_len_ = 0;
         // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
         // Defaulting 4 byte relative address reading
         uint32_t size_ = 4;
@@ -333,6 +335,13 @@ namespace patterns {
 #endif
                 else if (*ptr == 'a')
                     align_ = true;
+#ifndef __arm64__
+                // Check the next character to see what size we're reading at this relative address
+                else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
+                    size_ = *ptr - '0';
+                    if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
+                }
+#endif
                 ++ptr;
             }
         }
@@ -394,7 +403,7 @@ namespace patterns {
                 const auto relative_address = relative_value(address + offset_);
                 if (deref_) {
                     return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address)
-                        + offset_ + size_ + relative_address);
+                        + offset_ + insn_len_ + relative_address);
                 }
                 else {
                     return reinterpret_cast<void*>(relative_address);
@@ -425,12 +434,9 @@ namespace patterns {
         }
 #endif
         constexpr int32_t get_inst_len_opt(const char* ptr) const {
-            if (*ptr > (sizeof(void*) == 0x8 ? '9' : '5') || *ptr < '0')
-                throw std::logic_error("Invalid data for calculating operand size!");
-            const auto size = detail::stoi(ptr);
-            if ((size & (size - 1)) != 0)
-                throw std::logic_error("Size is not a valid data type size!");
-            return size;
+            if (*ptr > '9' || *ptr < '0')
+                throw std::logic_error("Invalid data for calculating remaining instruction size!");
+            return detail::stoi(ptr);
         }
     };
 }

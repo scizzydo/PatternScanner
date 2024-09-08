@@ -24,7 +24,7 @@ namespace patterns {
                     offset_ = n;
                     if (p[i + 1] != ' ') {
 #ifndef __arm64__
-                        size_ = get_inst_len_opt(&p[++i]);
+                        insn_len_ = get_inst_len_opt(&p[++i]);
 #endif
                         while (p[i + 1] != ' ')
                             ++i;
