@@ -28,7 +28,7 @@ size_t patterns::ldisasm(const void* buffer, size_t buffer_size) {
 #### Pattern Flags:
 - d: Dereference from the found address, or found address + offset ( addr + instructlen length + relative address )
 - r: Read the relative value at the address, or at the address + offset (not used on arm)
-- \<optional read size\>: Value of 1, 2, 4 or 8 to use with reading the relative value at address, or address + offset (not used with dereferencing, and not used on arm)
+- \<optional read size\>: Value of 1, 2, 4 or 8 to use with reading the relative value at address, or address + offset (defaults to 4, and not used on arm)
 - a: Perform a byte aligned scan for a faster scan. 4 byte alignment x32, 8 byte alignment x64 (rather than byte by byte scan)
 
 
