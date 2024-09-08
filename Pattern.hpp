@@ -7,17 +7,37 @@
 #endif
 
 namespace patterns {
-#ifdef PATTERNSCAN_LDISASM
-    // Define your own ldisasm in use if using dereference
-    extern size_t ldisasm(const void* buffer, size_t buffer_size);
-#endif
-
     namespace detail {
         constexpr bool __forceinline is_digit(char c) {
             return c <= '9' && c >= '0';
         }
+        constexpr bool __forceinline is_hex_digit(char c) {
+            return is_digit(c) || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
+        }
+        constexpr __forceinline char get_bits(char c) {
+            return is_digit(c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
+        }
+        constexpr int32_t stoi_impl(const char* str, int32_t value = 0, bool negative = false, bool hex = false) {
+            if (*str == '\0') return negative ? -value : value;
+            if (hex) {
+                if (is_hex_digit(*str))
+                    return stoi_impl(str + 1, get_bits(*str) + value * 16, negative, hex);
+            } else {
+                if (is_digit(*str))
+                    return stoi_impl(str + 1, (*str - '0') + value * 10, negative, hex);
+            }
+            return negative ? -value : value;
+        }
         constexpr int32_t stoi(const char* str, int32_t value = 0) {
-            return *str && is_digit(*str) ? stoi(str + 1, (*str - '0') + value * 10) : value;
+            if (*str == '-') {
+                ++str;
+                if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+                    return stoi_impl(str + 2, 0, true, true);
+                return stoi_impl(str, 0, true);
+            }
+            if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+                return stoi_impl(str + 2, 0, false, true);
+            return stoi_impl(str);
         }
 #ifdef __arm64__
         template<typename T>
@@ -205,8 +225,6 @@ namespace patterns {
     protected:
         uint32_t length_ = 0;
         uint32_t offset_ = 0;
-        uint32_t insn_len_ = 0;
-        // Added to avoid using the length disassembler if passed in
         bool deref_ = false;
 #ifndef __arm64__
         // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
@@ -275,7 +293,7 @@ namespace patterns {
                     }
                 }
 #else
-                for (auto j = 0U; j < length_; j += sizeof(void*)) {
+                for (auto j = 0U; j < length_; j += align_size_) {
                     const auto data = *reinterpret_cast<uintptr_t*>(pattern + j);
                     const auto msk = *reinterpret_cast<uintptr_t*>(mask + j);
                     const auto mem = *reinterpret_cast<uintptr_t*>(i + j);
@@ -296,10 +314,7 @@ namespace patterns {
     protected:
         // Credits to EJT for the helper functions here!
         constexpr __forceinline uint8_t value(const char* c) const {
-            return (get_bits(c[0]) << 4 | get_bits(c[1]));
-        }
-        constexpr __forceinline char get_bits(char c) const {
-            return detail::is_digit(c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
+            return (detail::get_bits(c[0]) << 4 | detail::get_bits(c[1]));
         }
         constexpr void handle_options(const char* ptr) {
             while (*ptr) {
@@ -318,13 +333,6 @@ namespace patterns {
 #endif
                 else if (*ptr == 'a')
                     align_ = true;
-#ifndef __arm64__
-                // Check the next character to see what size we're reading at this relative address
-                else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
-                    size_ = *ptr - '0';
-                    if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
-                }
-#endif
                 ++ptr;
             }
         }
@@ -385,20 +393,8 @@ namespace patterns {
             if (deref_ || rel_) {
                 const auto relative_address = relative_value(address + offset_);
                 if (deref_) {
-                    size_t instrlen = 0;
-                    if (!insn_len_) {
-#ifdef PATTERNSCAN_LDISASM
-                        instrlen = ldisasm(address, end - address);
-                        while (instrlen < offset_)
-                            instrlen += ldisasm(address + instrlen, (end - address) - instrlen);
-#else
-                        throw std::logic_error("Dereferencing specified without a length disassembler and/or instruction length defined!");
-#endif
-                    } else {
-                        instrlen = offset_ + insn_len_;
-                    }
                     return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address)
-                        + instrlen + relative_address);
+                        + offset_ + size_ + relative_address);
                 }
                 else {
                     return reinterpret_cast<void*>(relative_address);
@@ -429,10 +425,12 @@ namespace patterns {
         }
 #endif
         constexpr int32_t get_inst_len_opt(const char* ptr) const {
-            const auto c = *ptr;
-            if (c == ' ' || c > '9' || c < '0')
-                return 0;
-            return detail::stoi(ptr);
+            if (*ptr > (sizeof(void*) == 0x8 ? '9' : '5') || *ptr < '0')
+                throw std::logic_error("Invalid data for calculating operand size!");
+            const auto size = detail::stoi(ptr);
+            if ((size & (size - 1)) != 0)
+                throw std::logic_error("Size is not a valid data type size!");
+            return size;
         }
     };
 }

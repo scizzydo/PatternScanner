@@ -1,5 +1,6 @@
 #pragma once
 #include "Pattern.hpp"
+#include <cstddef>
 #include <vector>
 #include <stdexcept>
 
@@ -22,7 +23,7 @@ namespace patterns {
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
                     if (p[i + 1] != ' ') {
-                        insn_len_ = get_inst_len_opt(&p[++i]);
+                        size_ = get_inst_len_opt(&p[++i]);
                         while (p[i + 1] != ' ')
                             ++i;
                     }
