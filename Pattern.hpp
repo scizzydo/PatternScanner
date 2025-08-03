@@ -17,27 +17,29 @@ namespace patterns {
         constexpr __forceinline char get_bits(char c) {
             return is_digit(c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
         }
-        constexpr int32_t stoi_impl(const char* str, int32_t value = 0, bool negative = false, bool hex = false) {
+        template<typename T = int32_t>
+        constexpr T stoi_impl(const char* str, T value = 0, bool negative = false, bool hex = false) {
             if (*str == '\0') return negative ? -value : value;
             if (hex) {
                 if (is_hex_digit(*str))
-                    return stoi_impl(str + 1, get_bits(*str) + value * 16, negative, hex);
+                    return stoi_impl<T>(str + 1, get_bits(*str) + value * 16, negative, hex);
             } else {
                 if (is_digit(*str))
-                    return stoi_impl(str + 1, (*str - '0') + value * 10, negative, hex);
+                    return stoi_impl<T>(str + 1, (*str - '0') + value * 10, negative, hex);
             }
             return negative ? -value : value;
         }
-        constexpr int32_t stoi(const char* str, int32_t value = 0) {
+        template<typename T = int32_t>
+        constexpr T stoi(const char* str) {
             if (*str == '-') {
                 ++str;
                 if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
-                    return stoi_impl(str + 2, 0, true, true);
-                return stoi_impl(str, 0, true);
+                    return stoi_impl<T>(str + 2, 0, true, true);
+                return stoi_impl<T>(str, 0, true);
             }
             if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
-                return stoi_impl(str + 2, 0, false, true);
-            return stoi_impl(str);
+                return stoi_impl<T>(str + 2, 0, false, true);
+            return stoi_impl<T>(str);
         }
 #ifdef __arm64__
         template<typename T>
