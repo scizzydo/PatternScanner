@@ -164,7 +164,9 @@ namespace patterns {
                 int32_t immhi = extract_bitfield<int32_t>(insn, 19, 5) << 2;
                 auto adrp = (insn >> 31) & 0x1;
                 if (is_adrp) *is_adrp = adrp;
-                *offset = (adrp ? (immhi | immlo) * 4096 : (immhi | immlo));
+                // Back to signed (immlo is unsigned) before widening, and a 64-bit multiply: ADRP reaches +-4GB
+                const int64_t imm = static_cast<int32_t>(immhi | immlo);
+                *offset = (adrp ? imm * 4096 : imm);
                 return true;
             }
             return false;
@@ -486,13 +488,16 @@ namespace patterns {
                     auto saved_rd = rd;
                     auto curr_insn = insn + 1;
                     if (is_adrp) {
-                        while (*curr_insn) {
+                        // Follow the instructions after ADRP, never reading past the end of the scanned buffer
+                        while (reinterpret_cast<const uint8_t*>(curr_insn + 1) <= end && *curr_insn) {
                             unsigned rt = 0;
                             if (detail::a64_decode_arithmetic(*curr_insn, &is_sub, &sf, &rd, &rn, &offset)) {
-                                if (saved_rd == rd && rn == rd) {
+                                // ADD may write a different register (ADRP X8 / ADD X0, X8, #lo); keep following that one
+                                if (rn == saved_rd) {
                                     uint64_t val = (sf ? offset : static_cast<uint32_t>(offset));
                                     if (is_sub) saved_offset -= val;
                                     else saved_offset += val;
+                                    saved_rd = rd;
                                     ++curr_insn;
                                     continue;
                                 }

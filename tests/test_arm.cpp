@@ -1,0 +1,299 @@
+// ArmPattern tests. Exit code 0 = pass. Build with tests/CMakeLists.txt.
+// The encoder is checked on every platform against encodings produced by clang's assembler. On Apple arm64 the
+// test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
+#include "ArmPattern.hpp"
+#include <cstdio>
+#include <cstdlib>
+
+#define CHECK(x) do { if (!(x)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
+
+// Fully specified instruction -> its encoding. The pattern must be exactly the encoding, every bit masked
+#define CONCRETE(X) \
+    X("NOP",                         0xD503201F) \
+    X("RET",                         0xD65F03C0) \
+    X("BR X16",                      0xD61F0200) \
+    X("BLR X8",                      0xD63F0100) \
+    X("B #0x100",                    0x14000040) \
+    X("B #-0x8",                     0x17FFFFFE) \
+    X("BL #0x1000",                  0x94000400) \
+    X("BL #-0x40",                   0x97FFFFF0) \
+    X("ADR X0, #0x10",               0x10000080) \
+    X("ADR X3, #-0x4",               0x10FFFFE3) \
+    X("ADR X5, #0x5",                0x30000025) \
+    X("ADRP X0, #0x1000",            0xB0000000) \
+    X("ADRP X8, #0x7000",            0xF0000028) \
+    X("ADRP X1, #-0x2000",           0xD0FFFFE1) \
+    X("ADRP X2, #0x123000",          0xF0000902) \
+    X("LDRH W0, [X1,#0x10]",         0x79402020) \
+    X("LDRH W0, [X1]",               0x79400020) \
+    X("LDRH W2, [X3,#2]!",           0x78402C62) \
+    X("LDRH W2, [X3],#2",            0x78402462) \
+    X("LDRH W4, [X5,X6]",            0x786668A4) \
+    X("LDRH W4, [X5,X6,LSL#1]",      0x786678A4) \
+    X("LDR W0, [X1,#0x18]",          0xB9401820) \
+    X("LDR X0, [X1,#0x18]",          0xF9400C20) \
+    X("LDR X0, [X1]",                0xF9400020) \
+    X("LDR W9, [SP,#0x24]",          0xB94027E9) \
+    X("LDR X0, [X1,#8]!",            0xF8408C20) \
+    X("LDR X0, [X1],#8",             0xF8408420) \
+    X("LDR W0, [X1,#-4]!",           0xB85FCC20) \
+    X("LDR X2, [X3,X4]",             0xF8646862) \
+    X("LDR X2, [X3,X4,LSL#3]",       0xF8647862) \
+    X("LDR W2, [X3,W4,UXTW#2]",      0xB8645862) \
+    X("LDR X2, [X3,W4,SXTW]",        0xF864C862) \
+    X("LDR X0, #0x100",              0x58000800) \
+    X("LDR W1, #-0x10",              0x18FFFF81) \
+    X("MOVZ W0, #0x1234",            0x52824680) \
+    X("MOVZ X0, #0x1234, LSL#16",    0xD2A24680) \
+    X("MOVZ X3, #0xFFFF, LSL#48",    0xD2FFFFE3) \
+    X("MOVN W1, #0",                 0x12800001) \
+    X("MOVK X2, #0xBEEF, LSL#32",    0xF2D7DDE2) \
+    X("ORR X0, X1, #0xFF",           0xB2401C20) \
+    X("ORR W0, W1, #0x1",            0x32000020) \
+    X("ORR X0, X1, #0xFFFF0000FFFF0000", 0xB2103C20) \
+    X("ORR X0, X1, X2",              0xAA020020) \
+    X("ORR W0, W1, W2, LSL#4",       0x2A021020) \
+    X("ORR X0, X1, X2, ROR#7",       0xAAC21C20) \
+    X("LDP X29, X30, [SP,#0x10]",    0xA9417BFD) \
+    X("LDP W0, W1, [X2,#8]",         0x29410440) \
+    X("LDP X29, X30, [SP],#0x20",    0xA8C27BFD) \
+    X("LDP X0, X1, [X2,#-0x10]!",    0xA9FF0440) \
+    X("ADD X0, X1, #0x10",           0x91004020) \
+    X("ADD W0, W1, #0x10",           0x11004020) \
+    X("ADD X0, X1, #1, LSL#12",      0x91400420) \
+    X("ADD X0, SP, #0x20",           0x910083E0) \
+    X("ADD X0, X1, X2",              0x8B020020) \
+    X("ADD X0, X1, X2, LSL#3",       0x8B020C20) \
+    X("ADD X0, X1, W2, UXTW",        0x8B224020) \
+    X("ADD X0, X1, W2, SXTW#2",      0x8B22C820) \
+    X("ADDS X0, X1, #4",             0xB1001020) \
+    X("SUB SP, SP, #0x40",           0xD10103FF) \
+    X("SUB X0, X1, X2",              0xCB020020) \
+    X("SUBS W0, W1, #1",             0x71000420) \
+    X("STR W0, [SP,#0x1C]",          0xB9001FE0) \
+    X("STR X0, [X1,#0x18]",          0xF9000C20) \
+    X("STR X0, [X1]",                0xF9000020) \
+    X("STR X0, [SP,#-0x10]!",        0xF81F0FE0) \
+    X("STR X0, [X1],#8",             0xF8008420) \
+    X("STR W0, [X1,X2,LSL#2]",       0xB8227820) \
+    X("CBZ X0, #0x40",               0xB4000200) \
+    X("CBZ W0, #-0x8",               0x34FFFFC0) \
+    X("CBNZ X1, #0x100",             0xB5000801)
+
+// Wildcard pattern, an instruction, its encoding, and whether the pattern must match it
+#define WILDCARD(X) \
+    X("LDR W?, [X?,#0x18]",      "LDR W3, [X9,#0x18]",          0xB9401923, 1) \
+    X("LDR W?, [X?,#0x18]",      "LDR W3, [X9,#0x1C]",          0xB9401D23, 0) \
+    X("LDR W?, [X?,#0x18]",      "LDR X3, [X9,#0x18]",          0xF9400D23, 0) \
+    X("LDR W?, [X?,#0x18]",      "STR W3, [X9,#0x18]",          0xB9001923, 0) \
+    X("LDR ?, [X?,#?]",          "LDR X3, [X9,#0x18]",          0xF9400D23, 1) \
+    X("LDR ?, [X?,#?]",          "LDR W3, [SP,#0x40]",          0xB94043E3, 1) \
+    X("LDR X?, [X?,#?]",         "LDR X0, [X1,#8]!",            0xF8408C20, 0) \
+    X("LDR X?, [X?],#?",         "LDR X0, [X1],#8",             0xF8408420, 1) \
+    X("LDR X?, [X?,#?]!",        "LDR X0, [X1,#-8]!",           0xF85F8C20, 1) \
+    X("LDR X?, [X?,X?,LSL#3]",   "LDR X0, [X1,X2,LSL#3]",       0xF8627820, 1) \
+    X("LDR X?, #?",              "LDR X0, #0x100",              0x58000800, 1) \
+    X("LDR X?, #?",              "LDR X0, [X1]",                0xF9400020, 0) \
+    X("LDR W0, [X1, #0x18]",     "LDR W0, [X1,#0x18]",          0xB9401820, 1) \
+    X("LDRH W?, [X?,#?]",        "LDRH W1, [X2,#0x10]",         0x79402041, 1) \
+    X("LDRH W?, [X?,#?]",        "STRH W1, [X2,#0x10]",         0x79002041, 0) \
+    X("LDRH W?, [X?,#?]",        "LDRB W1, [X2,#0x10]",         0x39404041, 0) \
+    X("STR X?, [SP,#?]",         "STR X5, [SP,#0x30]",          0xF9001BE5, 1) \
+    X("STR X?, [SP,#?]",         "STR X5, [X1,#0x30]",          0xF9001825, 0) \
+    X("STR ?, [X?,#?]",          "STR W5, [X1,#0x30]",          0xB9003025, 1) \
+    X("STR W?, [X?,#0x1C]",      "STR W5, [X1,#0x1C]",          0xB9001C25, 1) \
+    X("STR X?, [X?,#?]!",        "STR X0, [SP,#-0x10]!",        0xF81F0FE0, 1) \
+    X("ADRP X?, #?",             "ADRP X8, #0x5000",            0xB0000028, 1) \
+    X("ADRP X?, #?",             "ADR X8, #0x50",               0x10000288, 0) \
+    X("ADRP X8, #?",             "ADRP X9, #0x5000",            0xB0000029, 0) \
+    X("ADR X?, #?",              "ADR X1, #-0x40",              0x10FFFE01, 1) \
+    X("ADD X?, X?, #?",          "ADD X0, X1, #0x3A0",          0x910E8020, 1) \
+    X("ADD X?, X?, #?",          "SUB X0, X1, #0x3A0",          0xD10E8020, 0) \
+    X("ADD X?, X?, #?",          "ADD X0, X1, X2",              0x8B020020, 0) \
+    X("ADD X?, X?, #?",          "ADDS X0, X1, #1",             0xB1000420, 0) \
+    X("ADD W?, W?, #?",          "ADD W0, W1, #1",              0x11000420, 1) \
+    X("ADD X?, X?, #?, LSL#12",  "ADD X0, X1, #1, LSL#12",      0x91400420, 1) \
+    X("ADD X?, X?, X?",          "ADD X0, X1, X2",              0x8B020020, 1) \
+    X("ADD X?, X?, X?",          "ADD X0, X1, #2",              0x91000820, 0) \
+    X("SUB SP, SP, #?",          "SUB SP, SP, #0x80",           0xD10203FF, 1) \
+    X("SUB X?, X?, #?",          "ADD X0, X1, #1",              0x91000420, 0) \
+    X("SUBS W?, W?, #?",         "SUBS W0, W1, #1",             0x71000420, 1) \
+    X("SUBS W?, W?, #?",         "SUB W0, W1, #1",              0x51000420, 0) \
+    X("ADD X0, X1, #1, LSL #12", "ADD X0, X1, #1, LSL#12",      0x91400420, 1) \
+    X("ADD X0, X1, #1, LSL #12", "ADD X0, X1, #1",              0x91000420, 0) \
+    X("BL ?",                    "BL #0x2000",                  0x94000800, 1) \
+    X("BL #?",                   "BL #0x2000",                  0x94000800, 1) \
+    X("BL #?",                   "B #0x2000",                   0x14000800, 0) \
+    X("B #?",                    "B #-0x10",                    0x17FFFFFC, 1) \
+    X("B ?",                     "BL #0x10",                    0x94000004, 0) \
+    X("CBZ ?, #?",               "CBZ W0, #0x20",               0x34000100, 1) \
+    X("CBZ ?, #?",               "CBNZ W0, #0x20",              0x35000100, 0) \
+    X("CBNZ X?, #?",             "CBNZ X1, #-0x20",             0xB5FFFF01, 1) \
+    X("CBZ X?, #?",              "CBZ W1, #0x20",               0x34000101, 0) \
+    X("MOVZ W?, #?",             "MOVZ W0, #0x10",              0x52800200, 1) \
+    X("MOVZ W?, #?",             "MOVK W0, #0x10",              0x72800200, 0) \
+    X("MOVK X?, #?, LSL#?",      "MOVK X0, #0x10, LSL#16",      0xF2A00200, 1) \
+    X("MOVZ X?, #0x10",          "MOVZ X0, #0x10, LSL#16",      0xD2A00200, 0) \
+    X("ORR X?, X?, X?",          "ORR X0, X1, X2",              0xAA020020, 1) \
+    X("ORR X?, X?, #?",          "ORR X0, X1, #0xFF",           0xB2401C20, 1) \
+    X("ORR X?, X?, X?",          "AND X0, X1, X2",              0x8A020020, 0) \
+    X("ORR X0, XZR, X1",         "MOV X0, X1",                  0xAA0103E0, 1) \
+    X("LDP X?, X?, [SP,#?]",     "LDP X29, X30, [SP,#0x10]",    0xA9417BFD, 1) \
+    X("LDP X?, X?, [SP,#?]",     "STP X29, X30, [SP,#0x10]",    0xA9017BFD, 0) \
+    X("LDP X?, X?, [SP],#?",     "LDP X29, X30, [SP],#0x30",    0xA8C37BFD, 1) \
+    X("LDP X?, X?, [SP,#?]!",    "LDP X29, X30, [SP,#-0x30]!",  0xA9FD7BFD, 1) \
+    X("BR X?",                   "BR X16",                      0xD61F0200, 1) \
+    X("BR X?",                   "BLR X16",                     0xD63F0200, 0) \
+    X("BLR X?",                  "BLR X8",                      0xD63F0100, 1) \
+    X("RET",                     "RET X1",                      0xD65F0020, 0) \
+    X("NOP",                     "NOP",                         0xD503201F, 1)
+
+struct Word { uint32_t pat, mask; };
+template <class P> static Word word(const P& p, size_t idx = 0) {
+    Word w;
+    memcpy(&w.pat, p.pattern() + idx * 4, 4);
+    memcpy(&w.mask, p.mask() + idx * 4, 4);
+    return w;
+}
+
+static void concrete() {
+    int n = 0;
+#define CASE(text, enc) { \
+        const auto w = word(ARM_PATTERN(text)); \
+        if (w.pat != (enc) || w.mask != 0xFFFFFFFF) { \
+            printf("FAIL %s: pat=%08X mask=%08X, want %08X/FFFFFFFF\n", text, w.pat, w.mask, (enc)); exit(1); \
+        } ++n; }
+    CONCRETE(CASE)
+#undef CASE
+    printf("  concrete encodings ok (%d)\n", n);
+}
+
+static void wildcards() {
+    int n = 0;
+#define CASE(ptext, itext, enc, want) { \
+        const auto w = word(ARM_PATTERN(ptext)); \
+        if ((((enc) & w.mask) == w.pat) != (want)) { \
+            printf("FAIL %s vs %s: should%s match (pat=%08X mask=%08X enc=%08X)\n", ptext, itext, (want) ? "" : " not", w.pat, w.mask, (enc)); exit(1); \
+        } ++n; }
+    WILDCARD(CASE)
+#undef CASE
+    printf("  wildcard matching ok (%d)\n", n);
+}
+
+template <class A, class B> static bool same(const A& a, const B& b) {
+    return a.length() == b.length() && a.offset() == b.offset() && a.deref() == b.deref() && a.aligned() == b.aligned()
+        && !memcmp(a.pattern(), b.pattern(), a.length()) && !memcmp(a.mask(), b.mask(), a.length());
+}
+
+// Each line is parsed on its own: no instruction may turn into a wildcard because of what follows it
+static void line_formats() {
+    constexpr auto canon = ARM_PATTERN("NOP\nX LDR W8, [X8,#0x18]\nRET\n/d");
+    CHECK(canon.length() == 12 && canon.offset() == 4 && canon.deref() && canon.aligned());
+    CHECK(word(canon, 0).pat == 0xD503201F && word(canon, 1).pat == 0xB9401908 && word(canon, 2).pat == 0xD65F03C0);
+    for (size_t k = 0; k < 3; ++k) CHECK(word(canon, k).mask == 0xFFFFFFFF);
+    CHECK(same(canon, ARM_PATTERN("\tNOP\r\n\tX LDR W8, [X8,#0x18]\r\n\tRET\r\n/d")));         // tabs, CRLF
+    CHECK(same(canon, ARM_PATTERN("  NOP  \n\n  X LDR W8, [X8, #0x18]  \n\n  RET\n/d")));     // padding, blank lines
+    CHECK(same(canon, ARM_PATTERN("nop\nx ldr    w8, [x8, #0x18]\nret\n/d")));               // lowercase, as lldb prints it
+    CHECK(same(ARM_PATTERN("ADD X0, X1, #1, LSL#12"), ARM_PATTERN("ADD X0, X1, #1, LSL #12")));
+    CHECK(same(ARM_PATTERN("BL #?"), ARM_PATTERN("BL ?")));
+    CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP\nRET\n")));
+    CHECK(ARM_PATTERN("NOP\nRET\n/a").length() == 8);
+    puts("  line formats ok");
+}
+
+#ifdef __arm64__
+// /d on hand-built code: ADRP beyond 2GB, and ADRP followers bounded by the scanned size
+static void deref_synthetic() {
+    static const uint32_t far_code[] = { 0x528EEEE9, 0x90480000, 0x91004000, 0 };   // MOVZ W9, #0x7777; ADRP X0, #0x90000000; ADD X0, X0, #0x10
+    const auto far_page = reinterpret_cast<uintptr_t>(&far_code[1]) & ~uintptr_t(0xFFF);
+    constexpr auto adrl = ARM_PATTERN("MOVZ W9, #0x7777\nX ADRP X?, #?\n/d");
+    CHECK(adrl.find<uintptr_t>(reinterpret_cast<const uint8_t*>(far_code), sizeof far_code) == far_page + 0x90000000 + 0x10);
+
+    static const uint32_t neg_code[] = { 0x528EEEE9, 0x90B80000, 0 };               // ADRP X0, #-0x90000000
+    const auto neg_page = reinterpret_cast<uintptr_t>(&neg_code[1]) & ~uintptr_t(0xFFF);
+    CHECK(adrl.find<uintptr_t>(reinterpret_cast<const uint8_t*>(neg_code), sizeof neg_code) == neg_page - 0x90000000);
+
+    static const uint32_t adr_back[] = { 0x528EEEE9, 0x10FFFFE3, 0 };               // ADR X3, #-0x4
+    CHECK(ARM_PATTERN("MOVZ W9, #0x7777\nX ADR X?, #?\n/d").find<const uint32_t*>(reinterpret_cast<const uint8_t*>(adr_back), sizeof adr_back) == adr_back);
+
+    // ADRP X0, #0x1000; ADD X1, X0, #0x10; LDR X2, [X1,#8]: ADD into another register, then a load through it
+    static const uint32_t chain[] = { 0x528EEEE9, 0xB0000000, 0x91004001, 0xF9400422, 0 };
+    const auto page = reinterpret_cast<uintptr_t>(&chain[1]) & ~uintptr_t(0xFFF);
+    const auto bytes = reinterpret_cast<const uint8_t*>(chain);
+    CHECK(adrl.find<uintptr_t>(bytes, sizeof chain) == page + 0x1000 + 0x10 + 8);
+    CHECK(adrl.find<uintptr_t>(bytes, 12) == page + 0x1000 + 0x10);   // the LDR is past the end: not read
+    CHECK(adrl.find<uintptr_t>(bytes, 8) == page + 0x1000);           // ADRP is the last word scanned
+    puts("  /d on synthetic code ok");
+}
+#endif
+
+#if defined(__arm64__) && defined(__APPLE__)
+#define SYM(x) "_" x
+#define ASM_LINE(text, ...) text "\n"
+#define ASM_WILD(ptext, itext, ...) itext "\n"
+__asm__(".data\n.p2align 2\n.globl " SYM("asm_concrete") "\n" SYM("asm_concrete") ":\n" CONCRETE(ASM_LINE)
+        ".globl " SYM("asm_wildcard") "\n" SYM("asm_wildcard") ":\n" WILDCARD(ASM_WILD));
+extern "C" const uint32_t asm_concrete[], asm_wildcard[];
+
+// The tables' encodings must still be what the assembler produces
+static void assembler_agrees() {
+    size_t i = 0;
+#define CASE(text, enc) if (asm_concrete[i++] != (enc)) { printf("FAIL table: %s assembles to %08X\n", text, asm_concrete[i - 1]); exit(1); }
+    CONCRETE(CASE)
+#undef CASE
+    i = 0;
+#define CASE(ptext, itext, enc, want) if (asm_wildcard[i++] != (enc)) { printf("FAIL table: %s assembles to %08X\n", itext, asm_wildcard[i - 1]); exit(1); }
+    WILDCARD(CASE)
+#undef CASE
+    puts("  tables match the assembler ok");
+}
+
+// /d against code whose ADRP/ADD/LDR/BL operands were filled in by the linker
+extern "C" int arm_target_data;
+int arm_target_data = 0x1234;
+extern "C" void arm_target_func() {}
+extern "C" const uint32_t arm_reloc_code[];
+__asm__(".text\n.p2align 2\n.globl " SYM("arm_reloc_code") "\n" SYM("arm_reloc_code") ":\n"
+        "  movz w9, #0x7777\n"
+        "  adrp x0, " SYM("arm_target_data") "@PAGE\n"
+        "  add  x0, x0, " SYM("arm_target_data") "@PAGEOFF\n"
+        "  movz w9, #0x6666\n"
+        "  adrp x8, " SYM("arm_target_data") "@PAGE\n"
+        "  add  x1, x8, " SYM("arm_target_data") "@PAGEOFF\n"      // different destination register
+        "  movz w9, #0x5555\n"
+        "  adrp x8, " SYM("arm_target_data") "@PAGE\n"
+        "  ldr  w2, [x8, " SYM("arm_target_data") "@PAGEOFF]\n"
+        "  movz w9, #0x4444\n"
+        "  bl   " SYM("arm_target_func") "\n"
+        "  movz w9, #0x3333\n"
+        "  b    " SYM("arm_target_func") "\n"
+        "  ret\n");
+
+static void deref_relocated() {
+    const auto code = reinterpret_cast<const uint8_t*>(arm_reloc_code);
+    const size_t n = 14 * 4;
+    const void* data = &arm_target_data;
+    const void* func = reinterpret_cast<const void*>(&arm_target_func);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x7777\nX ADRP X?, #?\nADD X?, X?, #?\n/d").find<void*>(code, n) == data);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x6666\nX ADRP X?, #?\nADD X?, X?, #?\n/d").find<void*>(code, n) == data);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x5555\nX ADRP X?, #?\nLDR W?, [X?,#?]\n/d").find<void*>(code, n) == data);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x4444\nX BL ?\n/d").find<void*>(code, n) == func);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x3333\nX B #?\n/d").find<void*>(code, n) == func);
+    CHECK(ARM_PATTERN("MOVZ W9, #0x4444\nX BL ?").find<const uint8_t*>(code, n) == code + 40);   // no /d: the X address
+    puts("  /d on relocated code ok");
+}
+#endif
+
+int main() {
+    concrete();
+    wildcards();
+    line_formats();
+#ifdef __arm64__
+    deref_synthetic();
+#endif
+#if defined(__arm64__) && defined(__APPLE__)
+    assembler_agrees();
+    deref_relocated();
+#endif
+    puts("all arm tests passed");
+}

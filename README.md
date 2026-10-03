@@ -13,7 +13,7 @@ CompileTimePattern creates the pattern & mask during compile time and stored in 
 
 XORPattern creates the pattern & mask along with a keys array during compile time. Pattern stored is XOR'd bytes, otherwise it acts just the same as the CompileTimePattern. (the pattern() method however will return the XOR'd pattern, access the original bytes with the [] operator)
 
-ArmPattern creates the pattern & mask from the arm64 assembly, with wildcard support. Instructions not implemented would result in a wildcard portion for those 4 bytes. The class is constexpr also, so the assembly is not in the final product (if declaring the pattern with constexpr).
+ArmPattern creates the pattern & mask from the arm64 assembly, with wildcard support. Instructions not implemented would result in a wildcard portion for those 4 bytes. The class is constexpr also, so the assembly is not in the final product (if declaring the pattern with constexpr). One instruction per line; case, indentation and spacing don't matter, so lines pasted from IDA (`LDR W8, [X8,#0x18]`) or lldb (`ldr    w8, [x8, #0x18]`) both work. lldb prints ADRP operands as page counts and branch targets as absolute addresses, so wildcard those (`#?`). Aliases such as `MOV` aren't implemented (they become wildcards); write the underlying `MOVZ`/`ORR` instead.
 
 Every pattern type has a string literal: `_rtpattern` (any standard), and with C++20 `_ctpattern`, `_xorpattern`, `_armpattern`. Each `_xorpattern` gets its own random keys from where it's written (file, line, column) and the build time, so the same pattern written twice is stored differently. Before C++20, use the `COMPILETIME_PATTERN`, `XOR_PATTERN` and `ARM_PATTERN` macros (`XOR_PATTERN` gets per-definition keys from `__FILE__`/`__LINE__`/`__COUNTER__`).
 
@@ -57,5 +57,6 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 - `test_patterns`: edge cases, fuzzing against a naive scanner, per-definition XOR keys, and a check that its own binary contains no pattern plaintext. Also built with `PATTERNS_NO_SIMD`.
 - `test_cpp17`: the macro path.
+- `test_arm`: ArmPattern encodings checked against clang's assembler (concrete instructions must encode exactly, wildcard patterns must match / not match), line formats, and `/d` resolution. On Apple arm64 it also re-assembles its tables and resolves `/d` on linker-relocated ADRP/ADD/LDR/BL code.
 - `example_pointer_table`: globals resolved from one pattern list (X-macro) with a single chunked, multi-threaded scan. See the notes at the top of the file.
 - `multi_scan.hpp`: the multi-pattern strategies used by the above.

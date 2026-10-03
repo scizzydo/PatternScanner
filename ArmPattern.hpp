@@ -127,7 +127,7 @@ namespace patterns {
 
         constexpr size_t skip_mnemonic(const char* instr) {
             size_t i = 0;
-            while (instr[i] && instr[i] != ' ') ++i;
+            while (instr[i] && !isspace(instr[i])) ++i;
             return i;
         }
 
@@ -152,9 +152,11 @@ namespace patterns {
             return n & (n + 1);
         }
 
-        template <typename T>
-        constexpr std::tuple<bool, uint32_t, uint32_t, uint32_t> encode_bitmask_immediate(T value) {
-            uint64_t val = (value > 0xFFFFFFFFULL) ? value : (static_cast<uint64_t>(static_cast<uint32_t>(value)) << 32) | static_cast<uint32_t>(value);
+        // 32-bit (W) immediates are encoded as the value repeated in both halves; 64-bit (X) ones as they are
+        constexpr std::tuple<bool, uint32_t, uint32_t, uint32_t> encode_bitmask_immediate(uint64_t value, bool is64) {
+            if (!is64 && value > 0xFFFFFFFFULL)
+                return { false, 0, 0, 0 };
+            uint64_t val = is64 ? value : (value << 32) | value;
 
             if (val == 0 || ~val == 0)
                 return { false, 0, 0, 0 };
@@ -196,7 +198,7 @@ namespace patterns {
         }
 
         constexpr ArmOpcode parse_branch_imm26(const char* instr, ArmOpcode base) {
-            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+            size_t i = skip_char(instr, skip_whitespace(instr, skip_mnemonic(instr)), '#');
 
             if (instr[i] == '?') {
                 base.pattern &= 0xFC000000;
@@ -205,6 +207,14 @@ namespace patterns {
                 base.set_bits(static_cast<uint32_t>(stoi(&instr[i]) >> 2), 0x3FFFFFF);
             }
 
+            return base;
+        }
+
+        // BR/BLR/RET Xn (a bare RET returns through X30)
+        constexpr ArmOpcode parse_branch_reg(const char* instr, ArmOpcode base) {
+            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+            if (instr[i]) parse_register(instr, i, 0x1F, 5, base);
+            else base.set_bits(30, 0x1F, 5);
             return base;
         }
 
@@ -341,8 +351,11 @@ namespace patterns {
                 i = parse_imm_token(instr, i, imm);
                 if (imm[0] != '?') {
                     uint64_t immVal = stoi<uint64_t>(imm);
-                    auto [ ok, N, imms, immr ] = encode_bitmask_immediate(immVal);
-                    if (ok) base.set_bits((N << 12 | immr << 6 | imms), (1 << 12 | 0x3F << 6 | 0x3F), 10);
+                    // Unknown width (Rd is "?"): a value that fits in 32 bits can be either, and the two only differ in N
+                    const bool is64 = rd[0] == 'X' || (rd[0] != 'W' && immVal > 0xFFFFFFFFULL);
+                    const uint32_t n_mask = (rd[0] == 'X' || rd[0] == 'W' || is64) ? 1 : 0;
+                    auto [ ok, N, imms, immr ] = encode_bitmask_immediate(immVal, is64);
+                    if (ok) base.set_bits((N << 12 | immr << 6 | imms), (n_mask << 12 | 0x3F << 6 | 0x3F), 10);
                 }
                 return base;
             }
@@ -387,8 +400,10 @@ namespace patterns {
 
                 if (instr[i] == ',') {
                     i = skip_whitespace(instr, i+1);
-                    if      (starts_with(&instr[i], "LSL#0"))  base.set_mask(1, 22);
-                    else if (starts_with(&instr[i], "LSL#12")) base.set_bits(1, 1, 22);
+                    if (starts_with(&instr[i], "LSL")) {
+                        i = skip_char(instr, skip_whitespace(instr, i + 3), '#');
+                        if (instr[i] != '?') base.set_bits(stoi(&instr[i]) == 12 ? 1 : 0, 1, 22);
+                    }
                 } else {
                     base.set_mask(1, 22);
                 }
@@ -549,6 +564,9 @@ namespace patterns {
             { "STR",  parse_str },
             { "CBZ",  parse_cbz },
             { "CBNZ", parse_cbz },
+            { "BR",   parse_branch_reg },
+            { "BLR",  parse_branch_reg },
+            { "RET",  parse_branch_reg },
         };
 
         constexpr InstructionDescriptor instructions[] = {
@@ -573,7 +591,7 @@ namespace patterns {
             { "CBZ",  { 0x34000000, 0x7F000000 } },
             { "CBNZ", { 0x35000000, 0x7F000000 } },
             { "NOP",  { 0xD503201F, 0xFFFFFFFF } },
-            { "RET",  { 0xD65F03C0, 0xFFFFFFFF } },
+            { "RET",  { 0xD65F0000, 0xFFFFFC1F } },
         };
 
         constexpr ArmOpcode find_opcode(const char* mnemonic) {
@@ -588,7 +606,7 @@ namespace patterns {
         constexpr ArmOpcode a64_encode_instruction(const char* instr) {
             char mnemonic[8] = {};
             size_t i = 0;
-            while (instr[i] && instr[i] != ' ' && i < 7) {
+            while (instr[i] && !isspace(instr[i]) && i < 7) {
                 mnemonic[i] = instr[i];
                 ++i;
             }
@@ -605,14 +623,33 @@ namespace patterns {
             return base;
         }
         
-        constexpr size_t total_instructions(const char* str, size_t nstr) {
-            size_t line = 0, count = 0;
-            for (size_t i = 0; i < nstr - 1; ++i) {
-                if (str[i] == '\n') ++line, count = 0;
-                else if (count == 0 && str[i] == '/') break;
-                else ++count;
+        // Copies the line at str[i] into out, trimmed and uppercased (lldb/objdump print lowercase), so each
+        // instruction is parsed on its own and can't run into the next line. Returns where the next line starts
+        template <size_t N>
+        constexpr size_t read_line(const char* str, size_t i, char (&out)[N]) {
+            while (str[i] == ' ' || str[i] == '\t') ++i;
+            size_t j = 0;
+            for (; str[i] && str[i] != '\n'; ++i) {
+                if (j + 1 >= N) throw std::logic_error("Instruction line is too long!");
+                out[j++] = (str[i] >= 'a' && str[i] <= 'z') ? static_cast<char>(str[i] - 'a' + 'A') : str[i];
             }
-            return line + (count > 0 ? 1 : 0);
+            while (j && isspace(out[j - 1])) --j;
+            out[j] = '\0';
+            return str[i] ? i + 1 : i;
+        }
+
+        constexpr size_t max_line = 128;
+
+        // Non-empty lines up to the options line ("/d" etc.); must agree with the ArmPattern constructor
+        constexpr size_t total_instructions(const char* str, size_t nstr) {
+            size_t count = 0;
+            for (size_t i = 0; i < nstr - 1 && str[i];) {
+                char line[max_line] = {};
+                i = read_line(str, i, line);
+                if (line[0] == '/') break;
+                if (line[0]) ++count;
+            }
+            return count;
         }
 
         template <size_t N>
@@ -635,15 +672,16 @@ namespace patterns {
             size_t options = detail::skip_past(p, 0, '/');
             if (p[options - 1] == '/') handle_options(&p[options]);
             align_ = true;
-            for (size_t i = detail::skip_whitespace(p, 0); i < nstr && idx < narr;) {
-                size_t start = detail::skip_char(p, i, ' ');
-                if (p[start] == 'X') { offset_ = idx * 4; start = detail::skip_whitespace(p, start + 1); }
-                size_t end = detail::skip_past(p, start, '\n');
-                if (idx + 1 == narr && end > options) end = options;
-                auto encoded = detail::a64_encode_instruction(&p[start]);
+            for (size_t i = 0; i < nstr && p[i] && idx < narr;) {
+                char line[detail::max_line] = {};
+                i = detail::read_line(p, i, line);
+                if (line[0] == '/') break;
+                if (!line[0]) continue;
+                size_t start = 0;
+                if (line[0] == 'X') { offset_ = idx * 4; start = detail::skip_whitespace(line, 1); }
+                auto encoded = detail::a64_encode_instruction(&line[start]);
                 m_instructions[idx] = encoded.pattern;
                 m_masks[idx++] = encoded.mask;
-                i = end;
             }
         }
         virtual const uint8_t* pattern() const override {
