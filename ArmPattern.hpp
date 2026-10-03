@@ -622,11 +622,11 @@ namespace patterns {
     }
 
     template <size_t nstr, size_t narr>
-    class ArmPattern : public Pattern {
+    class ArmPattern final : public Pattern {
         std::array<uint32_t, narr> m_instructions{};
         std::array<uint32_t, narr> m_masks{};
     public:
-        constexpr ArmPattern(const char* p) :
+        PATTERNS_CONSTEVAL ArmPattern(const char* p) :
             m_instructions{}, m_masks{}
         {
             length_ = narr * 4;
@@ -655,6 +655,11 @@ namespace patterns {
     };
 }
 
+template<patterns::detail::const_string str>
+PATTERNS_CONSTEVAL auto operator""_armpattern() {
+    return patterns::ArmPattern<str.length, patterns::detail::total_instructions(str.data, str.size)>(str.data);
+}
+
 #ifndef ARM_PATTERN
-#define ARM_PATTERN(x) patterns::ArmPattern<sizeof(x)-1, patterns::detail::total_instructions(x)>(x)
+#define ARM_PATTERN(x) ([] { constexpr auto p = patterns::ArmPattern<sizeof(x)-1, patterns::detail::total_instructions(x)>(x); return p; }())
 #endif

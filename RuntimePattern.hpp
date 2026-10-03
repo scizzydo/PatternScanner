@@ -6,7 +6,7 @@
 
 namespace patterns {
 
-    class RuntimePattern : public Pattern {
+    class RuntimePattern final : public Pattern {
         std::vector<uint8_t> m_pattern;
         std::vector<uint8_t> m_mask;
     public:
@@ -22,11 +22,11 @@ namespace patterns {
                 // Capture where we have our offset marker 'X' at
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
-                    if (p[i + 1] != ' ') {
+                    if (i + 1 < len && p[i + 1] != ' ') {
 #ifndef __arm64__
                         insn_len_ = get_inst_len_opt(&p[++i]);
 #endif
-                        while (p[i + 1] != ' ')
+                        while (i + 1 < len && p[i + 1] != ' ')
                             ++i;
                     }
                 }
@@ -43,19 +43,6 @@ namespace patterns {
                 }
                 else i--;
             }
-#ifdef __arm64__
-            while (align_ && n % align_size_) {
-                m_pattern.push_back(0);
-                m_mask.push_back(0);
-                ++n;
-            }
-#else
-            while (n % sizeof(void*)) {
-                m_pattern.push_back(0);
-                m_mask.push_back(0);
-                ++n;
-            }
-#endif
             length_ = n;
         }
         RuntimePattern(const char* p) :
@@ -72,6 +59,6 @@ namespace patterns {
     };
 }
 
-auto operator"" _rtpattern(const char* str, size_t size) {
+inline auto operator""_rtpattern(const char* str, size_t size) {
     return patterns::RuntimePattern(str, size);
 }

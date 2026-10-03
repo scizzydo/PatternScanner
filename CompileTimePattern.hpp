@@ -5,68 +5,36 @@
 namespace patterns {
 
     namespace detail {
-        constexpr size_t pattern_length(const char* s, size_t nstr, bool pad = true) {
+        constexpr size_t pattern_length(const char* s, size_t nstr) {
             size_t res = 0;
-#ifdef __arm64__
-            bool align = false;
-#endif
             for (auto i = 0; i < nstr - 1; i += 2) {
                 auto c = s[i];
                 if (c == 'X' || c == 'x') {
-                    while (s[i + 1] != ' ')
+                    while (i + 1 < nstr && s[i + 1] != ' ')
                         ++i;
                     continue;
                 }
-                else if (c == '/') {
-#ifdef __arm64__
-                    while (i < nstr - 1 && (c = s[++i])) {
-                        if (c == 'a') {
-                            align = true;
-                            break;
-                        }
-                    }
-#endif
+                else if (c == '/')
                     break;
-                }
                 else if (c != ' ')
                     ++res;
                 else --i;
             }
-#ifdef __arm64__
-            while (pad && align && res % sizeof(uint32_t))
-                ++res;
-#else
-            while (pad && res % sizeof(void*))
-                ++res;
-#endif
             return res;
         }
 
         template<size_t nstr>
-        constexpr size_t pattern_length(const char(&s)[nstr], bool pad = true) {
-            return pattern_length(s, nstr, pad);
+        constexpr size_t pattern_length(const char(&s)[nstr]) {
+            return pattern_length(s, nstr);
         }
-
-#if __cplusplus > 201703L
-        template <size_t nstr>
-        struct const_string {
-            char data[nstr]{};
-            static constexpr size_t length = nstr - 1;
-            static constexpr size_t size = nstr;
-
-            constexpr const_string(const char(&s)[nstr]) {
-                std::copy_n(s, length, data);
-            }
-        };
-#endif
     }
 
     template<size_t nstr, size_t narr>
-    class CompileTimePattern : public Pattern {
+    class CompileTimePattern final : public Pattern {
         std::array<uint8_t, narr> m_pattern;
         std::array<uint8_t, narr> m_mask;
     public:
-        constexpr CompileTimePattern(const char* p) :
+        PATTERNS_CONSTEVAL CompileTimePattern(const char* p) :
             m_pattern{}, m_mask{}
         {
             length_ = narr;
@@ -81,11 +49,11 @@ namespace patterns {
                 // Capture where we have our offset marker 'X' at
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
-                    if (p[i + 1] != ' ') {
+                    if (i + 1 < nstr && p[i + 1] != ' ') {
 #ifndef __arm64__
                         insn_len_ = get_inst_len_opt(&p[++i]);
 #endif
-                        while (p[i + 1] != ' ')
+                        while (i + 1 < nstr && p[i + 1] != ' ')
                             ++i;
                     }
                 }
@@ -102,19 +70,6 @@ namespace patterns {
                 }
                 else --i;
             }
-#ifdef __arm64__
-            while (align_ && n % align_size_) {
-                m_pattern[n] = 0;
-                m_mask[n] = 0;
-                ++n;
-            }
-#else
-            while (n % sizeof(void*)) {
-                m_pattern[n] = 0;
-                m_mask[n] = 0;
-                ++n;
-            }
-#endif
         }
         virtual const uint8_t* pattern() const override {
             return m_pattern.data();
@@ -125,13 +80,13 @@ namespace patterns {
     };
 }
 
-#if __cplusplus > 201703L
+#ifdef PATTERNS_LITERALS
 template<patterns::detail::const_string str>
-constexpr auto operator"" _ctpattern() {
+PATTERNS_CONSTEVAL auto operator""_ctpattern() {
     return patterns::CompileTimePattern<str.length, patterns::detail::pattern_length(str.data, str.size)>(str.data);
 }
-#else
-#ifndef COMPILETIME_PATTERN
-#define COMPILETIME_PATTERN(x) patterns::CompileTimePattern<sizeof(x)-1, patterns::detail::pattern_length(x)>(x)
 #endif
+
+#ifndef COMPILETIME_PATTERN
+#define COMPILETIME_PATTERN(x) ([] { constexpr auto p = patterns::CompileTimePattern<sizeof(x)-1, patterns::detail::pattern_length(x)>(x); return p; }())
 #endif

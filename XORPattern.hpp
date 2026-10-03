@@ -4,39 +4,26 @@
 
 namespace patterns {
     namespace detail {
-        // Used to generate the pattern string hash
-        constexpr uint32_t fnv1a(const char* s, size_t count) {
-            return ((count ? fnv1a(s, count - 1) : 2166136261u) ^ s[count]) * 16777619u;
-        }
-
-        template<size_t count>
-        constexpr __forceinline uint32_t fnv1a(const char(&s)[count]) {
-            return fnv1a(s, count - 1);
-        }
-
-        template<uint32_t seed>
-        constexpr __forceinline uint8_t generate_key() {
+        // Key byte from the definition site's seed, mixed with the build time so keys also change every build
+        constexpr uint8_t generate_key(uint32_t seed) {
             uint32_t value = 2166136261u + seed;
             for (char c : __TIME__)
                 value = static_cast<uint32_t>((value ^ c) * 16777619ull);
-            return value;
-        }
-
-        template<uint32_t hash, size_t... Keys>
-        constexpr auto generate_keys(std::index_sequence<Keys...>) {
-            return std::array<uint8_t, sizeof...(Keys)>{ detail::generate_key<hash + Keys>()...};
+            return static_cast<uint8_t>(value);
         }
     }
 
-    template<size_t nstr, size_t narr, uint32_t hash>
-    class XORPattern : public Pattern {
+    template<size_t nstr, size_t narr>
+    class XORPattern final : public Pattern {
         std::array<uint8_t, narr> pattern_;
         std::array<uint8_t, narr> mask_;
         std::array<uint8_t, narr> keys_;
     public:
-        constexpr XORPattern(const char* p) :
-            pattern_{}, mask_{}, keys_{ detail::generate_keys<hash>(std::make_index_sequence<narr>()) }
+        PATTERNS_CONSTEVAL XORPattern(const char* p, uint32_t seed) :
+            pattern_{}, mask_{}, keys_{}
         {
+            for (size_t j = 0; j < narr; ++j)
+                keys_[j] = detail::generate_key(seed + static_cast<uint32_t>(j));
             length_ = narr;
             auto n = 0;
             for (auto i = 0; i < nstr; i += 2) {
@@ -49,11 +36,11 @@ namespace patterns {
                 // Capture where we have our offset marker 'X' at
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
-                    if (p[i + 1] != ' ') {
+                    if (i + 1 < nstr && p[i + 1] != ' ') {
 #ifndef __arm64__
                         insn_len_ = get_inst_len_opt(&p[++i]);
 #endif
-                        while (p[i + 1] != ' ')
+                        while (i + 1 < nstr && p[i + 1] != ' ')
                             ++i;
                     }
                 }
@@ -82,20 +69,12 @@ namespace patterns {
             return pattern_[idx] ^ keys_[idx];
         }
         virtual void* find(const uint8_t* bytes, size_t size) const override {
-            void* result = nullptr;
-            const auto end = bytes + size - length_;
-            for (auto i = const_cast<uint8_t*>(bytes); i < end; align_ ? i += align_size_ : ++i) {
-                bool found = true;
-                for (auto j = 0U; j < length_; ++j) {
-                    if (mask_[j] == 0xFF && (*this)[j] != i[j]) {
-                        found = false;
-                        break;
-                    }
-                }
-                if (found) 
-                    return get_result(i, end);
-            }
-            return result;
+            // Decoded only on the stack for the duration of the scan; the binary still holds just the XOR'd bytes
+            std::array<uint8_t, narr> plain{};
+            for (size_t j = 0; j < narr; ++j)
+                plain[j] = pattern_[j] ^ keys_[j];
+            const auto hit = scan(bytes, size, plain.data(), mask_.data());
+            return hit ? get_result(const_cast<uint8_t*>(hit), bytes + size) : nullptr;
         }
         template <typename T>
         T find(const uint8_t* bytes, size_t size) const {
@@ -105,13 +84,13 @@ namespace patterns {
 
 }
 
-#if __cplusplus > 201703L
+#ifdef PATTERNS_LITERALS
 template<patterns::detail::const_string str>
-constexpr auto operator"" _xorpattern() {
-    return patterns::XORPattern<str.length, patterns::detail::pattern_length(str.data, str.size, false), patterns::detail::fnv1a(str.data, str.length)>(str.data);
+PATTERNS_CONSTEVAL auto operator""_xorpattern() {
+    return patterns::XORPattern<str.length, patterns::detail::pattern_length(str.data, str.size)>(str.data, str.seed);
 }
-#else
-#ifndef XOR_PATTERN
-#define XOR_PATTERN(x) patterns::XORPattern<sizeof(x)-1, patterns::detail::pattern_length(x, false), patterns::detail::fnv1a(x)>(x)
 #endif
+
+#ifndef XOR_PATTERN
+#define XOR_PATTERN(x) ([] { constexpr auto p = patterns::XORPattern<sizeof(x)-1, patterns::detail::pattern_length(x)>(x, patterns::detail::site_seed(__FILE__, __LINE__, __COUNTER__)); return p; }())
 #endif
