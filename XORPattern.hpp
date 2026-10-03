@@ -71,8 +71,11 @@ namespace patterns {
         virtual void* find(const uint8_t* bytes, size_t size) const override {
             // Decoded only on the stack for the duration of the scan; the binary still holds just the XOR'd bytes
             std::array<uint8_t, narr> plain{};
+            // Keys read through volatile: otherwise, with a constexpr pattern, the optimizer folds the XOR at compile
+            // time and emits the plaintext as a constant (seen with clang -O3)
+            const volatile uint8_t* keys = keys_.data();
             for (size_t j = 0; j < narr; ++j)
-                plain[j] = pattern_[j] ^ keys_[j];
+                plain[j] = pattern_[j] ^ keys[j];
             const auto hit = scan(bytes, size, plain.data(), mask_.data());
             return hit ? get_result(const_cast<uint8_t*>(hit), bytes + size) : nullptr;
         }
