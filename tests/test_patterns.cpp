@@ -132,7 +132,12 @@ static void fuzz(unsigned rounds) {
         const bool align = rng() % 4 == 0;
         MaskPattern mp(p, m, align);
         const auto got = mp.find<uint8_t*>(buf.data() + base, n);
-        const auto want = naive(buf.data() + base, n, p.data(), m.data(), len, align ? sizeof(void*) : 1);
+#ifdef __arm64__
+        constexpr size_t align_step = 4;   // instruction size, not pointer size (see Pattern::align_size_)
+#else
+        constexpr size_t align_step = sizeof(void*);
+#endif
+        const auto want = naive(buf.data() + base, n, p.data(), m.data(), len, align ? align_step : 1);
         if (got != want) {
             printf("FAIL fuzz round %u: len=%zu n=%zu base=%zu align=%d\n", r, len, n, base, align);
             exit(1);
