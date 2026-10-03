@@ -201,7 +201,7 @@ static void line_formats() {
     puts("  line formats ok");
 }
 
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
 // /d on hand-built code: ADRP beyond 2GB, and ADRP followers bounded by the scanned size
 static void deref_synthetic() {
     static const uint32_t far_code[] = { 0x528EEEE9, 0x90480000, 0x91004000, 0 };   // MOVZ W9, #0x7777; ADRP X0, #0x90000000; ADD X0, X0, #0x10
@@ -227,7 +227,7 @@ static void deref_synthetic() {
 }
 #endif
 
-#if defined(__arm64__) && defined(__APPLE__)
+#if defined(PATTERNS_ARM64) && defined(__APPLE__)
 #define SYM(x) "_" x
 #define ASM_LINE(text, ...) text "\n"
 #define ASM_WILD(ptext, itext, ...) itext "\n"
@@ -288,10 +288,10 @@ int main() {
     concrete();
     wildcards();
     line_formats();
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
     deref_synthetic();
 #endif
-#if defined(__arm64__) && defined(__APPLE__)
+#if defined(PATTERNS_ARM64) && defined(__APPLE__)
     assembler_agrees();
     deref_relocated();
 #endif

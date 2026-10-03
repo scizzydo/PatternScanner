@@ -2,7 +2,7 @@
 #include "RuntimePattern.hpp"
 #include "CompileTimePattern.hpp"
 #include "XORPattern.hpp"
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
 #include "ArmPattern.hpp"
 #endif
 #include "multi_scan.hpp"
@@ -52,7 +52,7 @@ static void edge_cases() {
     // X offset, /r (relative value) and /d (rip-relative deref) on a call: E8 <rel32>
     alignas(8) uint8_t code[16] = { 0x90, 0xE8, 0x10, 0x00, 0x00, 0x00, 0xC3 };
     CHECK("E8 X ? ? ? ? C3"_rtpattern.find<uint8_t*>(code, 16) == code + 2);
-#ifndef __arm64__   // arm64 has no /r, and its /d decodes arm instructions
+#ifndef PATTERNS_ARM64   // arm64 has no /r, and its /d decodes arm instructions
     CHECK("E8 X4 ? ? ? ? C3 /r"_rtpattern.find<uintptr_t>(code, 16) == 0x10);
     CHECK("E8 X4 ? ? ? ? C3 /d"_rtpattern.find<uint8_t*>(code, 16) == code + 6 + 0x10);
 #endif
@@ -132,7 +132,7 @@ static void fuzz(unsigned rounds) {
         const bool align = rng() % 4 == 0;
         MaskPattern mp(p, m, align);
         const auto got = mp.find<uint8_t*>(buf.data() + base, n);
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
         constexpr size_t align_step = 4;   // instruction size, not pointer size (see Pattern::align_size_)
 #else
         constexpr size_t align_step = sizeof(void*);
@@ -163,7 +163,7 @@ static void multi_strategies() {
             if (j >= 4 && j < 8) s += "? ";
             else { snprintf(hex, sizeof hex, "%02X ", mod[off + j]); s += hex; }
         }
-#ifndef __arm64__   // x86-style /d on random bytes; arm64 /d would try to decode them as instructions
+#ifndef PATTERNS_ARM64   // x86-style /d on random bytes; arm64 /d would try to decode them as instructions
         s += k % 2 ? "/d" : "";
 #endif
         owned.emplace_back(s.c_str());
@@ -183,7 +183,7 @@ static void multi_strategies() {
     puts("  multi-pattern strategies agree ok");
 }
 
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
 static void arm_patterns() {
     constexpr auto adrl = "LDR W?, [X?,#0x18]\n"
                           "X ADRP X?, #?\n"
@@ -213,7 +213,7 @@ int main(int, char** argv) {
     no_plaintext_in_binary(argv[0]);
     fuzz(300000);
     multi_strategies();
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
     arm_patterns();
 #endif
     puts("all tests passed");

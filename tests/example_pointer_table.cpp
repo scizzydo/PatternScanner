@@ -53,7 +53,7 @@ inline size_t resolve_pointers(const uint8_t* start, size_t size, unsigned threa
 constinit const PointerEntry* table_is_constant = g_pointers;
 
 int main() {
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
     puts("x86 signatures with x86 /d semantics; skipped on arm64");
     return 0;
 #endif

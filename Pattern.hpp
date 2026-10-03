@@ -14,6 +14,12 @@
 #define PATTERNS_NEON
 #endif
 
+// arm64 instruction semantics (/d decoding, 4-byte alignment). __arm64__ alone is Apple only: GCC and clang
+// elsewhere define __aarch64__, MSVC _M_ARM64
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+#define PATTERNS_ARM64
+#endif
+
 #ifndef _MSC_VER
 #define __forceinline inline __attribute__((always_inline))
 #endif
@@ -116,7 +122,7 @@ namespace patterns {
                 if ((at[j] ^ pat[j]) & msk[j]) return false;
             return true;
         }
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
         template<typename T>
         T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
             constexpr size_t int_width = sizeof(int32_t) * 8;
@@ -305,7 +311,7 @@ namespace patterns {
         uint32_t length_ = 0;
         uint32_t offset_ = 0;
         bool deref_ = false;
-#ifndef __arm64__
+#ifndef PATTERNS_ARM64
         // Remaining bytes from the offset when used in dereferencing
         uint32_t insn_len_ = 0;
         // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
@@ -314,7 +320,7 @@ namespace patterns {
         bool rel_ = false;
 #endif
         bool align_ = false;
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
         // arm64 instructions are all 32 bits, so the align scanning will be at the instruction level
         static constexpr size_t align_size_ = 4;
 #else
@@ -332,7 +338,7 @@ namespace patterns {
         constexpr bool deref() const {
             return deref_;
         }
-#ifndef __arm64__
+#ifndef PATTERNS_ARM64
         constexpr bool relative() const {
             return rel_;
         }
@@ -448,7 +454,7 @@ namespace patterns {
         }
         constexpr void handle_options(const char* ptr) {
             while (*ptr) {
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
                 if (*ptr == 'd')
                     deref_ = true;
 #else
@@ -463,7 +469,7 @@ namespace patterns {
 #endif
                 else if (*ptr == 'a')
                     align_ = true;
-#ifndef __arm64__
+#ifndef PATTERNS_ARM64
                 // Check the next character to see what size we're reading at this relative address
                 else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
                     size_ = *ptr - '0';
@@ -474,7 +480,7 @@ namespace patterns {
             }
         }
         void* get_result(uint8_t* address, const uint8_t* end) const {
-#ifdef __arm64__
+#ifdef PATTERNS_ARM64
             if (deref_) {
                 auto insn = reinterpret_cast<uint32_t*>(address + offset_);
                 int64_t offset = 0;
@@ -546,7 +552,7 @@ namespace patterns {
             }
             return nullptr;
         }
-#ifndef __arm64__
+#ifndef PATTERNS_ARM64
         const intptr_t relative_value(uint8_t* ptr) const {
             switch (size_) {
             case 1:
