@@ -467,14 +467,16 @@ static void deref_synthetic() {
         CHECK(patterns::RuntimeArmPattern("X ?\n/d").resolve(at, at + 4) == at + 0x20);
     }
 
-    // ADRP X8, #0x5000 followed by: LDRB, LDRSW, pre-index with a negative offset, post-index, and an unrelated
-    // ADRP between ADRP and its ADD
+    // ADRP X8, #0x5000 followed by: LDRB, LDRSW, pre-index with a negative offset, post-index, an unrelated
+    // ADRP between ADRP and its ADD, and NOPs in the chain
     struct { uint32_t next[2]; int64_t add; } follow[] = {
         { { 0x39448D00, 0 }, 0x123 },        // LDRB W0, [X8,#0x123]
         { { 0xB9801100, 0 }, 0x10 },         // LDRSW X0, [X8,#0x10]
         { { 0xF85F8D00, 0 }, -8 },           // LDR X0, [X8,#-8]!
         { { 0xF8408500, 0 }, 0 },            // LDR X0, [X8],#8
         { { 0x90000009, 0x91004108 }, 0x10 },  // ADRP X9, #0; ADD X8, X8, #0x10
+        { { 0xD503201F, 0x91004108 }, 0x10 },  // NOP; ADD X8, X8, #0x10
+        { { 0xD503201F, 0x39448D00 }, 0x123 }, // NOP; LDRB W0, [X8,#0x123]
     };
     for (auto& f : follow) {
         alignas(4) uint32_t code[4] = { 0x528EEEE9, 0xB0000028, f.next[0], f.next[1] };   // MOVZ W9; ADRP X8, #0x5000
