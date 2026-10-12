@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Library tests (tests/), including the compile-time leftovers matrix
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S tests -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure
+
+  # IDA plugin build against the public SDK. The idalib search test needs an IDA install and license, so it isn't run
+  ida-plugin:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: HexRaysSA/ida-sdk
+          ref: v9.3.0-release
+          path: ida-sdk
+          submodules: true
+      - run: cmake -S plugins/ida -B build-ida -DCMAKE_BUILD_TYPE=Release -DIDASDK="${{ github.workspace }}/ida-sdk"
+      - run: cmake --build build-ida --config Release --parallel
