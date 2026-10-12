@@ -95,7 +95,58 @@
     X("STR W0, [X1,X2,LSL#2]",       0xB8227820) \
     X("CBZ X0, #0x40",               0xB4000200) \
     X("CBZ W0, #-0x8",               0x34FFFFC0) \
-    X("CBNZ X1, #0x100",             0xB5000801)
+    X("CBNZ X1, #0x100",             0xB5000801) \
+    X("LDR X0, [X1,#4]",             0xF8404020) \
+    X("LDR X0, [X29,#-8]",           0xF85F83A0) \
+    X("LDR W0, [X1,#-4]",            0xB85FC020) \
+    X("STR X0, [X1,#-8]",            0xF81F8020) \
+    X("STR WZR, [SP,#0xC]",          0xB9000FFF) \
+    X("LDRH W0, [X1,#3]",            0x78403020) \
+    X("LDUR X0, [X1,#0x10]",         0xF8410020) \
+    X("STUR W0, [X29,#-4]",          0xB81FC3A0) \
+    X("LDURB W0, [X1,#-1]",          0x385FF020) \
+    X("STURH W0, [X1,#-2]",          0x781FE020) \
+    X("LDURSW X0, [X1,#-4]",         0xB89FC020) \
+    X("LDRB W0, [X1,#0x10]",         0x39404020) \
+    X("LDRB W0, [X1,#3]",            0x39400C20) \
+    X("LDRB W0, [X1,#1]!",           0x38401C20) \
+    X("LDRB W0, [X1],#1",            0x38401420) \
+    X("LDRB W0, [X1,X2]",            0x38626820) \
+    X("LDRB W0, [X1,X2,LSL#0]",      0x38627820) \
+    X("LDRB W0, [X1,W2,UXTW]",       0x38624820) \
+    X("STRB W0, [X1,#0x10]",         0x39004020) \
+    X("STRB WZR, [X1]",              0x3900003F) \
+    X("STRH W0, [X1,#0x10]",         0x79002020) \
+    X("STRH W0, [X1,#-2]!",          0x781FEC20) \
+    X("LDRSW X0, [X1,#0x10]",        0xB9801020) \
+    X("LDRSW X0, [X1,X2,LSL#2]",     0xB8A27820) \
+    X("CMP X0, #0x10",               0xF100401F) \
+    X("CMP W0, W1",                  0x6B01001F) \
+    X("CMP X0, X1, LSL#2",           0xEB01081F) \
+    X("CMP X0, W1, UXTW",            0xEB21401F) \
+    X("CMP W0, #1, LSL#12",          0x7140041F) \
+    X("CMN W0, #1",                  0x3100041F) \
+    X("CMN X0, X1",                  0xAB01001F) \
+    X("TST W0, #0xFF",               0x72001C1F) \
+    X("TST X0, X1",                  0xEA01001F) \
+    X("TST X0, #0x8000000000000000", 0xF241001F) \
+    X("AND X0, X1, #0xFF",           0x92401C20) \
+    X("AND W0, W1, W2",              0x0A020020) \
+    X("ANDS X0, X1, X2, LSR#3",      0xEA420C20) \
+    X("EOR W0, W1, #0x80000000",     0x52010020) \
+    X("EOR X0, X1, X2",              0xCA020020) \
+    X("B.EQ #0x10",                  0x54000080) \
+    X("B.NE #-0x8",                  0x54FFFFC1) \
+    X("B.HS #0x100",                 0x54000802) \
+    X("B.CS #0x100",                 0x54000802) \
+    X("B.LO #0x100",                 0x54000803) \
+    X("B.GT #0x20",                  0x5400010C) \
+    X("RETAA",                       0xD65F0BFF) \
+    X("RETAB",                       0xD65F0FFF) \
+    X("PACIASP",                     0xD503233F) \
+    X("PACIBSP",                     0xD503237F) \
+    X("AUTIASP",                     0xD50323BF) \
+    X("AUTIBSP",                     0xD50323FF)
 
 // Wildcard pattern, an instruction, its encoding, and whether the pattern must match it
 #define WILDCARD(X) \
@@ -141,6 +192,7 @@
     X("ADD W?, W?, #?",          "ADD W0, W1, #1",              0x11000420, 1) \
     X("ADD X?, X?, #?, LSL#12",  "ADD X0, X1, #1, LSL#12",      0x91400420, 1) \
     X("ADD X?, X?, X?",          "ADD X0, X1, X2",              0x8B020020, 1) \
+    X("ADD X?, X?, X?",          "ADD X0, X1, X3",              0x8B030020, 1) \
     X("ADD X?, X?, X?",          "ADD X0, X1, #2",              0x91000820, 0) \
     X("SUB SP, SP, #?",          "SUB SP, SP, #0x80",           0xD10203FF, 1) \
     X("SUB X?, X?, #?",          "ADD X0, X1, #1",              0x91000420, 0) \
@@ -173,7 +225,49 @@
     X("BR X?",                   "BLR X16",                     0xD63F0200, 0) \
     X("BLR X?",                  "BLR X8",                      0xD63F0100, 1) \
     X("RET",                     "RET X1",                      0xD65F0020, 0) \
-    X("NOP",                     "NOP",                         0xD503201F, 1)
+    X("NOP",                     "NOP",                         0xD503201F, 1) \
+    X("RET",                     "RETAA",                       0xD65F0BFF, 0) \
+    X("LDR X?, [X29,#-8]",       "LDUR X3, [X29,#-8]",          0xF85F83A3, 1) \
+    X("LDR ?, [X29,#-8]",        "LDUR W0, [X29,#-8]",          0xB85F83A0, 1) \
+    X("LDR ?, [X29,#-8]",        "LDR X0, [X29,#8]",            0xF94007A0, 0) \
+    X("LDR X?, [X?,X?,LSL#?]",   "LDR X2, [X3,X4]",             0xF8646862, 1) \
+    X("LDUR X?, [X?,#?]",        "LDUR X0, [X1,#0x10]",         0xF8410020, 1) \
+    X("LDUR X?, [X?,#?]",        "LDR X0, [X1,#0x10]",          0xF9400820, 0) \
+    X("LDUR X?, [X?,#?]",        "LDR X0, [X1,#8]!",            0xF8408C20, 0) \
+    X("STUR ?, [X?,#?]",         "STUR W0, [X29,#-4]",          0xB81FC3A0, 1) \
+    X("STUR ?, [X?,#?]",         "LDUR W0, [X29,#-4]",          0xB85FC3A0, 0) \
+    X("LDRB W?, [X?,#?]",        "LDRB W0, [X1,#0x10]",         0x39404020, 1) \
+    X("LDRB W?, [X?,#?]",        "LDRH W0, [X1,#0x10]",         0x79402020, 0) \
+    X("LDRB W?, [X?,#?]",        "STRB W0, [X1,#0x10]",         0x39004020, 0) \
+    X("LDRB W?, [X?,X?,LSL#?]",  "LDRB W0, [X1,X2,LSL#0]",      0x38627820, 1) \
+    X("LDRB W?, [X?,X?,LSL#?]",  "LDRB W0, [X1,X2]",            0x38626820, 1) \
+    X("STRB ?, [X?,#?]",         "STRB WZR, [X1]",              0x3900003F, 1) \
+    X("STRH W?, [X?,#?]!",       "STRH W0, [X1,#-2]!",          0x781FEC20, 1) \
+    X("STRH W?, [X?,#?]!",       "STRH W0, [X1,#0x10]",         0x79002020, 0) \
+    X("LDRSW X?, [X?,#?]",       "LDRSW X0, [X1,#0x10]",        0xB9801020, 1) \
+    X("LDRSW X?, [X?,#?]",       "LDR W0, [X1,#0x10]",          0xB9401020, 0) \
+    X("CMP X?, #?",              "CMP X0, #0x10",               0xF100401F, 1) \
+    X("CMP X?, #?",              "SUBS X1, X0, #0x10",          0xF1004001, 0) \
+    X("CMP X?, #?",              "CMP W0, #1",                  0x7100041F, 0) \
+    X("CMP ?, #?",               "CMP W0, #1",                  0x7100041F, 1) \
+    X("CMP W?, W?",              "CMP W0, W1",                  0x6B01001F, 1) \
+    X("CMP W?, W?",              "CMN W0, W1",                  0x2B01001F, 0) \
+    X("CMP X?, X?, LSL#?",       "CMP X0, X1, LSL#2",           0xEB01081F, 1) \
+    X("CMN W?, #?",              "CMN W0, #1",                  0x3100041F, 1) \
+    X("TST W?, #?",              "TST W0, #0xFF",               0x72001C1F, 1) \
+    X("TST W?, #?",              "ANDS W1, W0, #0xFF",          0x72001C01, 0) \
+    X("TST X?, X?",              "TST X0, X1",                  0xEA01001F, 1) \
+    X("AND X?, X?, #?",          "AND X0, X1, #0xFF",           0x92401C20, 1) \
+    X("AND X?, X?, #?",          "ORR X0, X1, #0xFF",           0xB2401C20, 0) \
+    X("EOR X?, X?, X?",          "EOR X0, X1, X2",              0xCA020020, 1) \
+    X("EOR X?, X?, X?",          "ORR X0, X1, X2",              0xAA020020, 0) \
+    X("ANDS X?, X?, X?, LSR#?",  "ANDS X0, X1, X2, LSR#3",      0xEA420C20, 1) \
+    X("B.EQ #?",                 "B.EQ #0x10",                  0x54000080, 1) \
+    X("B.EQ #?",                 "B.NE #0x10",                  0x54000081, 0) \
+    X("B.? #?",                  "B.GT #0x20",                  0x5400010C, 1) \
+    X("B.? #?",                  "B #0x10",                     0x14000004, 0) \
+    X("B.? ?",                   "CBZ W0, #0x10",               0x34000080, 0) \
+    X("B.HS ?",                  "B.CS #0x100",                 0x54000802, 1)
 
 struct Word { uint32_t pat, mask; };
 template <class P> static Word word(const P& p, size_t idx = 0) {
@@ -205,6 +299,18 @@ static void wildcards() {
     WILDCARD(CASE)
 #undef CASE
     printf("  wildcard matching ok (%d)\n", n);
+}
+
+// Forms the encoder doesn't support become a whole-word wildcard (mask 0), which the IDA plugin warns about,
+// rather than a pattern that can never match
+static void unsupported() {
+    CHECK(word(ARM_PATTERN("LDR Q0, [X1,#0x10]")).mask == 0);
+    CHECK(word(ARM_PATTERN("STR D0, [SP,#8]")).mask == 0);
+    CHECK(word(ARM_PATTERN("STP D9, D8, [SP,#-0x20]!")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDR W0, [X1,#0x4000]")).mask == 0);    // past the unsigned offset's range
+    CHECK(word(ARM_PATTERN("LDUR X0, [X1,#0x100]")).mask == 0);    // past imm9
+    CHECK(word(ARM_PATTERN("B.XX #0x10")).mask == 0);
+    puts("  unsupported forms ok");
 }
 
 template <class A, class B> static bool same(const A& a, const B& b) {
@@ -322,7 +428,7 @@ static void deref_synthetic() {
 #define SYM(x) "_" x
 #define ASM_LINE(text, ...) text "\n"
 #define ASM_WILD(ptext, itext, ...) itext "\n"
-__asm__(".data\n.p2align 2\n.globl " SYM("asm_concrete") "\n" SYM("asm_concrete") ":\n" CONCRETE(ASM_LINE)
+__asm__(".data\n.p2align 2\n.arch_extension pauth\n.globl " SYM("asm_concrete") "\n" SYM("asm_concrete") ":\n" CONCRETE(ASM_LINE)
         ".globl " SYM("asm_wildcard") "\n" SYM("asm_wildcard") ":\n" WILDCARD(ASM_WILD));
 extern "C" const uint32_t asm_concrete[], asm_wildcard[];
 
@@ -378,6 +484,7 @@ static void deref_relocated() {
 int main() {
     concrete();
     wildcards();
+    unsupported();
     line_formats();
     prologue();
     runtime_patterns();

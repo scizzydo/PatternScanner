@@ -54,6 +54,8 @@ namespace patterns {
             return i;
         }
 
+        constexpr size_t max_line = 128;
+
         constexpr bool starts_with(const char* a, const char* prefix) {
             while (*prefix) {
                 if (*a != *prefix) return false;
@@ -246,17 +248,37 @@ namespace patterns {
             return base;
         }
 
-        constexpr std::tuple<bool, bool, bool, bool> parse_load_store_defaults(const char* instr, size_t i, ArmOpcode& base, uint32_t size_bit = 0) {
+        // imm19 (bits 5-23) from a byte offset, for CBZ/CBNZ, B.cond and LDR (literal)
+        constexpr void parse_imm19(const char* instr, size_t i, ArmOpcode& base) {
+            char imm[24] = {};
+            parse_imm_token(instr, i, imm);
+            if (imm[0] != '?') base.set_bits(static_cast<uint32_t>(stoi(imm) >> 2), 0x7FFFF, 5);
+        }
+
+        // Single-register loads/stores. op is the unsigned offset form; the unscaled (LDUR), pre/post-index and
+        // register offset forms differ from it in fixed bits. scale is log2 of the access size, or -1 to take it
+        // from Rt (W or X, bit 30). An offset the unsigned form can't hold (negative, unaligned) is encoded unscaled,
+        // the way assemblers pick LDUR/STUR. Floating-point/SIMD registers aren't supported: the line is a wildcard
+        template <uint32_t op, int scale, bool unscaled = false>
+        constexpr ArmOpcode parse_load_store(const char* instr, ArmOpcode) {
+            ArmOpcode base{ 0, 0 };
+            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+
             char rt[5] = {}, imm[24] = {};
             i = parse_register(instr, parse_token(instr, i, rt), rt, 0x1F, 0, base, ',');
-            if (size_bit && rt[0] != '?') base.set_bits((rt[0] == 'W' ? 0 : 1), 1, size_bit);
-            if (instr[i++] != '[') return { false, false, false, false };
+            if (rt[0] != 'W' && rt[0] != 'X' && rt[0] != '?') return { 0, 0 };
+            int size = scale;
+            if (scale < 0 && rt[0] != '?') {
+                size = rt[0] == 'W' ? 2 : 3;
+                base.set_bits(size - 2, 1, 30);
+            }
+            if (instr[i++] != '[') return { 0, 0 };
 
             // Rn
             i = parse_register(instr, i, 0x1F, 5, base);
 
             bool is_register_offset = false, is_pre_index = false, is_post_index = false;
-            uint32_t option_val = 0b011, s_val = 0;
+            uint32_t option_val = 0b011, s_val = 0, s_mask = 1;
 
             if (instr[i] == ',') {
                 i = skip_whitespace(instr, ++i);
@@ -274,7 +296,9 @@ namespace patterns {
 
                     i = skip_whitespace(instr, skip_char(instr, i, ','));
                     if (instr[i] == '#') {
-                        s_val = static_cast<uint32_t>(stoi(&instr[++i])) > 0 ? 1 : 0;
+                        // For bytes an explicit #0 is the shifted form; for the rest the amount is 0 or the scale
+                        if (instr[++i] == '?') s_mask = 0;
+                        else s_val = (size == 0 || stoi(&instr[i]) != 0) ? 1 : 0;
                     }
                 }
             }
@@ -290,59 +314,42 @@ namespace patterns {
                 }
             }
 
-            if (is_register_offset) base.set_bits((option_val << 1) | s_val, 0xF, 12);
+            const bool known_imm = imm[0] != '?';
+            const int32_t val = known_imm ? stoi(imm) : 0;
+            bool is_unsigned_offset = !unscaled && !is_register_offset && !is_pre_index && !is_post_index;
+            if (is_unsigned_offset && known_imm && (val < 0 || (size > 0 && (val & ((1 << size) - 1)))))
+                is_unsigned_offset = false;
 
-            if (imm[0] != '?') {
-                int32_t val = stoi(imm);
-                if (!is_register_offset && (is_pre_index || is_post_index)) {
-                    if (val >= -256 && val <= 255)
-                        base.set_bits(val, 0x1FF, 12);
-                } else if (!is_register_offset && (size_bit == 0 || rt[0] != '?')) {
-                    auto shift = size_bit > 0 ? (rt[0] == 'W' ? 2 : 3) : 1;
-                    if ((val & 1) == 0 && (val >> shift) <= 0xFFF) {
-                        base.set_bits((val >> shift), 0xFFF, 10);
-                    }
-                }
-            }
-
-            return { true, is_register_offset, is_pre_index, is_post_index };
-        }
-
-        constexpr ArmOpcode parse_ldrh(const char* instr, ArmOpcode base) {
-            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
-
-            auto [ ok, is_register_offset, is_pre_index, is_post_index ] = parse_load_store_defaults(instr, i, base);
-            if (!ok) return base;
-
-            if (is_register_offset)   base.set_bits(0x78600800, 0xFFE00C00);
-            else if (is_pre_index)    base.set_bits(0x78400C00, 0xFFE00C00);
-            else if (is_post_index)   base.set_bits(0x78400400, 0xFFE00C00);
-            else /* Unsigned offset*/ base.set_bits(0x79400000, 0xFFC00000);
-
-            return base;
-        }
-
-        constexpr ArmOpcode parse_ldr(const char* instr, ArmOpcode base) {
-            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
-
-            auto [ ok, is_register_offset, is_pre_index, is_post_index ] = parse_load_store_defaults(instr, i, base, 30);
-            if (!ok) {
-                char imm[24] = {};
-                i = parse_imm_token(instr, skip_whitespace(instr, skip_past(instr, i, ',')), imm);
-
-                if (!(imm[0] == '?' && imm[1] == '\0')) {
-                    int32_t val = stoi(imm);
-                    if ((val & 3) != 0) val &= ~3;
-                    base.set_bits((val >> 2), 0x7FFFF, 5);
+            const uint32_t width_mask = scale < 0 ? ~(1u << 30) : ~0u;   // Rt's width bit, set above when known
+            if (is_unsigned_offset) {
+                base.set_bits(op, 0xFFC00000 & width_mask);
+                if (known_imm && size >= 0) {
+                    if ((val >> size) > 0xFFF) return { 0, 0 };
+                    base.set_bits(val >> size, 0xFFF, 10);
                 }
                 return base;
             }
 
-            if (is_register_offset) base.set_bits(0xB8600800, 0xBFE00C00);
-            else if (is_pre_index)  base.set_bits(0xB8400C00, 0xBFE00C00);
-            else if (is_post_index) base.set_bits(0xB8400400, 0xBFE00C00);
-            else                    base.set_bits(0xB9400000, 0xBFC00000);
+            const uint32_t form = is_register_offset ? 0x00200800 : is_pre_index ? 0xC00 : is_post_index ? 0x400 : 0;
+            base.set_bits((op & ~0x01000000u) | form, 0xFFE00C00 & width_mask);
+            if (is_register_offset) {
+                base.set_bits(option_val << 1 | s_val, 0xE | s_mask, 12);
+            } else if (known_imm) {
+                if (val < -256 || val > 255) return { 0, 0 };
+                base.set_bits(val, 0x1FF, 12);
+            }
+            return base;
+        }
 
+        // LDR is a load/store, or a PC-relative literal load (LDR Rt, #offset)
+        constexpr ArmOpcode parse_ldr(const char* instr, ArmOpcode base) {
+            char rt[5] = {};
+            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+            i = parse_register(instr, parse_token(instr, i, rt), rt, 0x1F, 0, base, ',');
+            if (instr[i] == '[') return parse_load_store<0xB9400000, -1>(instr, base);
+            if (rt[0] != 'W' && rt[0] != 'X' && rt[0] != '?') return { 0, 0 };
+            if (rt[0] != '?') base.set_bits((rt[0] == 'W' ? 0 : 1), 1, 30);
+            parse_imm19(instr, i, base);
             return base;
         }
 
@@ -465,7 +472,7 @@ namespace patterns {
                     }
                 }
             } else {
-                base.set_bits(0, (7 << 11 | 0x7F), 10);
+                base.set_bits(0, (7 << 11 | 0x3F), 10);
             }
 
             return base;
@@ -475,6 +482,7 @@ namespace patterns {
             size_t i = skip_whitespace(instr, skip_mnemonic(instr));
             char rt1[5] = {};
             i = parse_register(instr, parse_token(instr, i, rt1), rt1, 0x1F, 0, base, ',');
+            if (rt1[0] != 'W' && rt1[0] != 'X' && rt1[0] != '?') return { 0, 0 };   // FP/SIMD pairs aren't supported
             bool know_size = rt1[0] != '?';
             uint32_t size_bits = know_size ? (rt1[0] == 'W' ? 0b0 : 0b1) : 0;
             if (know_size) base.set_bits(size_bits, 1, 31);
@@ -581,20 +589,6 @@ namespace patterns {
             return op;
         }
 
-        constexpr ArmOpcode parse_str(const char* instr, ArmOpcode base) {
-            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
-
-            auto [ ok, is_register_offset, is_pre_index, is_post_index ] = parse_load_store_defaults(instr, i, base, 30);
-            if (!ok) return base;
-
-            if (is_register_offset) base.set_bits(0xB8200800, 0xBFE00C00);
-            else if (is_pre_index)  base.set_bits(0xB8000C00, 0xBFE00C00);
-            else if (is_post_index) base.set_bits(0xB8000400, 0xBFE00C00);
-            else                    base.set_bits(0xB9000000, 0xBFC00000);     
-
-            return base;
-        }
-
         constexpr ArmOpcode parse_cbz(const char* instr, ArmOpcode base) {
             size_t i = skip_whitespace(instr, skip_mnemonic(instr));
 
@@ -602,14 +596,39 @@ namespace patterns {
             i = parse_register(instr, parse_token(instr, i, rt), rt, 0x1F, 0, base, ',');
             if (rt[0] != '?') base.set_bits((rt[0] == 'W' ? 0 : 1), 1, 31);
 
-            char imm[24] = {};
-            i = parse_imm_token(instr, i, imm);
+            parse_imm19(instr, i, base);
+            return base;
+        }
 
-            if (!(imm[0] == '?' && imm[1] == '\0')) {
-                int32_t val = stoi(imm);
-                if ((val & 3) != 0) val &= ~3;
-                base.set_bits((val >> 2), 0x7FFFF, 5);
+        // CMP/CMN/TST Rn, ... are SUBS/ADDS/ANDS ZR, Rn, ...: parsed as that, with the zero register of Rn's width
+        template <ParseFunc parse>
+        constexpr ArmOpcode parse_zr_dest(const char* instr, ArmOpcode base) {
+            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+            const char* zr = instr[i] == 'W' ? "WZR, " : instr[i] == 'X' ? "XZR, " : "?, ";
+            char line[max_line + 8] = { '_', ' ' };
+            size_t j = 2;
+            while (*zr) line[j++] = *zr++;
+            while (instr[i]) line[j++] = instr[i++];
+            ArmOpcode op = parse(line, base);
+            op.set_bits(31, 0x1F);
+            return op;
+        }
+
+        constexpr const char* conditions[] = { "EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC", "HI", "LS", "GE", "LT", "GT", "LE", "AL", "NV" };
+
+        // B.cond: the condition is part of the mnemonic (B.EQ, B.HS); B.? matches any
+        constexpr ArmOpcode parse_bcond(const char* instr) {
+            ArmOpcode base{ 0x54000000, 0xFF000010 };
+            char cond[4] = {};
+            for (size_t j = 0; j < 3 && instr[2 + j] && !isspace(instr[2 + j]); ++j) cond[j] = instr[2 + j];
+            if (cond[0] != '?') {
+                uint32_t c = str_eq(cond, "HS") ? 2 : str_eq(cond, "LO") ? 3 : 16;
+                for (uint32_t k = 0; k < 16 && c == 16; ++k)
+                    if (str_eq(cond, conditions[k])) c = k;
+                if (c == 16) return { 0, 0 };
+                base.set_bits(c, 0xF);
             }
+            parse_imm19(instr, skip_whitespace(instr, skip_mnemonic(instr)), base);
             return base;
         }
 
@@ -623,12 +642,30 @@ namespace patterns {
             { "BL",   parse_branch_imm26 },
             { "ADR",  parse_adr },
             { "ADRP", parse_adr },
-            { "LDRH", parse_ldrh },
             { "LDR",  parse_ldr },
+            { "LDRB", parse_load_store<0x39400000, 0> },
+            { "LDRH", parse_load_store<0x79400000, 1> },
+            { "LDRSW", parse_load_store<0xB9800000, 2> },
+            { "STR",  parse_load_store<0xB9000000, -1> },
+            { "STRB", parse_load_store<0x39000000, 0> },
+            { "STRH", parse_load_store<0x79000000, 1> },
+            { "LDUR", parse_load_store<0xB9400000, -1, true> },
+            { "LDURB", parse_load_store<0x39400000, 0, true> },
+            { "LDURH", parse_load_store<0x79400000, 1, true> },
+            { "LDURSW", parse_load_store<0xB9800000, 2, true> },
+            { "STUR", parse_load_store<0xB9000000, -1, true> },
+            { "STURB", parse_load_store<0x39000000, 0, true> },
+            { "STURH", parse_load_store<0x79000000, 1, true> },
             { "MOVZ", parse_movX },
             { "MOVN", parse_movX },
             { "MOVK", parse_movX },
             { "ORR",  parse_orr },
+            { "AND",  parse_orr },
+            { "ANDS", parse_orr },
+            { "EOR",  parse_orr },
+            { "TST",  parse_zr_dest<parse_orr> },
+            { "CMP",  parse_zr_dest<parse_arithmetic> },
+            { "CMN",  parse_zr_dest<parse_arithmetic> },
             { "LDP",  parse_ldp },
             { "STP",  parse_stp },
             { "MOV",  parse_mov },
@@ -636,7 +673,6 @@ namespace patterns {
             { "ADDS", parse_arithmetic },
             { "SUB",  parse_arithmetic },
             { "SUBS", parse_arithmetic },
-            { "STR",  parse_str },
             { "CBZ",  parse_cbz },
             { "CBNZ", parse_cbz },
             { "BR",   parse_branch_reg },
@@ -653,21 +689,31 @@ namespace patterns {
             { "ADDS", { 0x21000000, 0x65800000 } },
             { "SUB",  { 0x41000000, 0x65000000 } },
             { "SUBS", { 0x61000000, 0x65000000 } },
-            { "LDRH", { 0x38400000, 0x3B200000 } },
             { "LDR",  { 0x18000000, 0xBF000000 } },
             { "MOVZ", { 0x52800000, 0x7F800000 } },
             { "MOVN", { 0x12800000, 0x7F800000 } },
             { "MOVK", { 0x72800000, 0x7F800000 } },
             { "ORR",  { 0x22000000, 0x67000000 } },
+            { "AND",  { 0x02000000, 0x67000000 } },
+            { "ANDS", { 0x62000000, 0x67000000 } },
+            { "EOR",  { 0x42000000, 0x67000000 } },
+            { "TST",  { 0x62000000, 0x67000000 } },   // ANDS ZR
+            { "CMP",  { 0x61000000, 0x65000000 } },   // SUBS ZR
+            { "CMN",  { 0x21000000, 0x65800000 } },   // ADDS ZR
             { "LDP",  { 0x28400000, 0x7E400000 } },
             { "STP",  { 0x28000000, 0x7E400000 } },
             { "BR",   { 0xD61F0000, 0xFFFFFC1F } },
             { "BLR",  { 0xD63F0000, 0xFFFFFC1F } },
-            { "STR",  { 0xB8000000, 0xBEC00000 } },
             { "CBZ",  { 0x34000000, 0x7F000000 } },
             { "CBNZ", { 0x35000000, 0x7F000000 } },
             { "NOP",  { 0xD503201F, 0xFFFFFFFF } },
             { "RET",  { 0xD65F0000, 0xFFFFFC1F } },
+            { "RETAA", { 0xD65F0BFF, 0xFFFFFFFF } },
+            { "RETAB", { 0xD65F0FFF, 0xFFFFFFFF } },
+            { "PACIASP", { 0xD503233F, 0xFFFFFFFF } },
+            { "PACIBSP", { 0xD503237F, 0xFFFFFFFF } },
+            { "AUTIASP", { 0xD50323BF, 0xFFFFFFFF } },
+            { "AUTIBSP", { 0xD50323FF, 0xFFFFFFFF } },
         };
 
         constexpr ArmOpcode find_opcode(const char* mnemonic) {
@@ -688,6 +734,7 @@ namespace patterns {
             }
             mnemonic[i] = '\0';
 
+            if (starts_with(mnemonic, "B.")) return parse_bcond(instr);
             ArmOpcode base = find_opcode(mnemonic);
 
             for (const auto& entry : parseTable) {
@@ -713,8 +760,6 @@ namespace patterns {
             out[j] = '\0';
             return str[i] ? i + 1 : i;
         }
-
-        constexpr size_t max_line = 128;
 
         // The ArmPattern syntax: one instruction per line, X before the one to resolve, flags after '/'. Calls
         // line(index, instruction) for each instruction (trimmed and uppercased), x(index) for the X line and
