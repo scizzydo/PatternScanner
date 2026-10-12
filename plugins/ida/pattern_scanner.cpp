@@ -101,6 +101,12 @@ namespace {
             ti.text = text;
             if (ask_form(form, &ti, &kind, &opts) != ASKBTN_YES) return;
             text = ti.text;
+            if (kind == pscan::arm64_pattern) {
+                const qstring unknown = pscan::unsupported_lines(text);
+                if (!unknown.empty() && ask_yn(ASKBTN_NO, "HIDECANCEL\nPatternScanner doesn't support these instructions, "
+                        "so they would match any instruction:\n\n%s\nSearch anyway?", unknown.c_str()) != ASKBTN_YES)
+                    return;
+            }
             try {
                 last = pscan::parse(text, static_cast<pscan::kind_t>(kind));
             }

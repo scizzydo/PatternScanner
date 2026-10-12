@@ -94,6 +94,19 @@ static void arm64(const char* path) {
     CHECK(bytes.match == sym("code_adrp") && bytes.result == data);
     CHECK(all("NOP\nRET", pscan::arm64_pattern).empty());
 
+    // A prologue as IDA prints it (STP, MOV): the first hit must be the function that has it, not a near miss
+    const char* prologue = "STP             X20, X19, [SP,#?]!\n"
+                           "STP             X29, X30, [SP,#?]\n"
+                           "ADD             X29, SP, #0x10\n"
+                           "MOV             X19, X1\n"
+                           "MOV             X0, X30";
+    CHECK(pscan::unsupported_lines(prologue).empty());
+    const auto fn = all(prologue, pscan::arm64_pattern);
+    CHECK(fn.size() == 1 && fn[0].match == sym("wanted"));
+
+    // Unknown instructions are reported (they'd match anything); a deliberate "?" line isn't
+    CHECK(pscan::unsupported_lines("NOP\nFOO X1, X2\n  ?  \nstp x29, x30, [sp,#?]\nBAR\n/d") == "FOO X1, X2\nBAR\n");
+
     bool threw = false;
     try { pscan::parse("48 8G", pscan::bytes_pattern); } catch (const std::logic_error&) { threw = true; }
     CHECK(threw);

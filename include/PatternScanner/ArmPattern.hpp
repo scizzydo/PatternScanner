@@ -520,6 +520,67 @@ namespace patterns {
             return base;
         }
 
+        // STP is LDP with the load bit (22) clear
+        constexpr ArmOpcode parse_stp(const char* instr, ArmOpcode base) {
+            base = parse_ldp(instr, base);
+            base.pattern &= ~(1u << 22);
+            return base;
+        }
+
+        // MOV is an alias; encoded the way assemblers pick: ADD #0 when SP is involved, ORR from the zero register for
+        // registers, and MOVZ, then MOVN, then ORR (bitmask) for immediates. MOV Rd, #? matches MOVZ or MOVN
+        constexpr ArmOpcode parse_mov(const char* instr, ArmOpcode) {
+            size_t i = skip_whitespace(instr, skip_mnemonic(instr));
+            char rd[5] = {};
+            i = skip_whitespace(instr, skip_char(instr, parse_token(instr, i, rd), ','));
+            const bool rd_sp = str_eq(rd, "SP") || str_eq(rd, "WSP");
+            const bool known_width = rd[0] == 'W' || rd[0] == 'X' || rd_sp;
+            const bool is64 = rd[0] == 'X' || str_eq(rd, "SP");
+            ArmOpcode op{ 0, 0 };
+            if (known_width) op.set_bits(is64 ? 1 : 0, 1, 31);
+            if (auto r = parse_register(rd); r != 0xFFFFFFFF) op.set_bits(r, 0x1F);
+
+            if (instr[i] == '#') {
+                char imm[24] = {};
+                parse_imm_token(instr, i, imm);
+                if (imm[0] == '?') {
+                    op.set_bits(0x12800000, 0x1F800000);   // MOVZ or MOVN: opc (bits 29-30) left open
+                    return op;
+                }
+                const unsigned width = is64 ? 64 : 32;
+                const uint64_t ones = is64 ? ~0ULL : 0xFFFFFFFFULL;
+                const uint64_t v = stoi<uint64_t>(imm) & ones;   // unsigned: 64-bit hex fits, and negatives wrap
+                for (uint32_t hw = 0; hw < width / 16; ++hw) {
+                    if ((v & ~(0xFFFFULL << (hw * 16))) == 0) {
+                        op.set_bits(0x52800000 | hw << 21 | static_cast<uint32_t>(v >> (hw * 16)) << 5, 0x7FFFFFE0);
+                        return op;
+                    }
+                }
+                for (uint32_t hw = 0; hw < width / 16; ++hw) {
+                    if ((~v & ones & ~(0xFFFFULL << (hw * 16))) == 0) {
+                        op.set_bits(0x12800000 | hw << 21 | static_cast<uint32_t>((~v & ones) >> (hw * 16)) << 5, 0x7FFFFFE0);
+                        return op;
+                    }
+                }
+                auto [ ok, N, imms, immr ] = encode_bitmask_immediate(v, is64);
+                if (!ok) return { 0, 0 };
+                op.set_bits(0x320003E0 | N << 22 | immr << 16 | imms << 10, 0x7FFFFFE0);
+                return op;
+            }
+
+            char rm[5] = {};
+            parse_token(instr, i, rm);
+            const auto rm_val = parse_register(rm);
+            if (rd_sp || str_eq(rm, "SP") || str_eq(rm, "WSP")) {
+                op.set_bits(0x11000000, 0x7FFFFC00);   // ADD Rd, Rn, #0
+                if (rm_val != 0xFFFFFFFF) op.set_bits(rm_val, 0x1F, 5);
+            } else {
+                op.set_bits(0x2A0003E0, 0x7FE0FFE0);   // ORR Rd, ZR, Rm
+                if (rm_val != 0xFFFFFFFF) op.set_bits(rm_val, 0x1F, 16);
+            }
+            return op;
+        }
+
         constexpr ArmOpcode parse_str(const char* instr, ArmOpcode base) {
             size_t i = skip_whitespace(instr, skip_mnemonic(instr));
 
@@ -569,6 +630,8 @@ namespace patterns {
             { "MOVK", parse_movX },
             { "ORR",  parse_orr },
             { "LDP",  parse_ldp },
+            { "STP",  parse_stp },
+            { "MOV",  parse_mov },
             { "ADD",  parse_arithmetic },
             { "ADDS", parse_arithmetic },
             { "SUB",  parse_arithmetic },
@@ -597,6 +660,7 @@ namespace patterns {
             { "MOVK", { 0x72800000, 0x7F800000 } },
             { "ORR",  { 0x22000000, 0x67000000 } },
             { "LDP",  { 0x28400000, 0x7E400000 } },
+            { "STP",  { 0x28000000, 0x7E400000 } },
             { "BR",   { 0xD61F0000, 0xFFFFFC1F } },
             { "BLR",  { 0xD63F0000, 0xFFFFFC1F } },
             { "STR",  { 0xB8000000, 0xBEC00000 } },

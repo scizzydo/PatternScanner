@@ -11,6 +11,22 @@
 // Fully specified instruction -> its encoding. The pattern must be exactly the encoding, every bit masked
 #define CONCRETE(X) \
     X("NOP",                         0xD503201F) \
+    X("STP X20, X19, [SP,#-0x20]!",  0xA9BE4FF4) \
+    X("STP X29, X30, [SP,#0x10]",    0xA9017BFD) \
+    X("STP X29, X30, [SP],#0x10",    0xA8817BFD) \
+    X("STP W1, W2, [X0,#8]",         0x29010801) \
+    X("LDP X29, X30, [SP,#0x10]",    0xA9417BFD) \
+    X("MOV X19, X1",                 0xAA0103F3) \
+    X("MOV X0, X30",                 0xAA1E03E0) \
+    X("MOV W0, W1",                  0x2A0103E0) \
+    X("MOV X29, SP",                 0x910003FD) \
+    X("MOV SP, X29",                 0x910003BF) \
+    X("MOV W0, #0x10",               0x52800200) \
+    X("MOV X0, #0x10000",            0xD2A00020) \
+    X("MOV W0, #-1",                 0x12800000) \
+    X("MOV X0, #-2",                 0x92800020) \
+    X("MOV W0, #0x10001",            0x320083E0) \
+    X("MOV X0, #0xFFFF0000FFFF0000", 0xB2103FE0) \
     X("RET",                         0xD65F03C0) \
     X("BR X16",                      0xD61F0200) \
     X("BLR X8",                      0xD63F0100) \
@@ -83,6 +99,16 @@
 
 // Wildcard pattern, an instruction, its encoding, and whether the pattern must match it
 #define WILDCARD(X) \
+    X("STP X29, X30, [SP,#?]",   "STP X29, X30, [SP,#0x30]",    0xA9037BFD, 1) \
+    X("STP X29, X30, [SP,#?]",   "LDP X29, X30, [SP,#0x10]",    0xA9417BFD, 0) \
+    X("STP X29, X30, [SP,#?]",   "STP X29, X30, [SP],#0x10",    0xA8817BFD, 0) \
+    X("STP X20, X19, [SP,#?]!",  "STP X20, X19, [SP,#-0x20]!",  0xA9BE4FF4, 1) \
+    X("STP X20, X19, [SP,#?]!",  "SUB SP, SP, #0x20",           0xD10083FF, 0) \
+    X("MOV X?, X1",              "MOV X5, X1",                  0xAA0103E5, 1) \
+    X("MOV X19, X?",             "MOV X19, X1",                 0xAA0103F3, 1) \
+    X("MOV W0, #?",              "MOV W0, #5",                  0x528000A0, 1) \
+    X("MOV W0, #?",              "MOV W0, #-1",                 0x12800000, 1) \
+    X("MOV W0, #?",              "MOV W0, W1",                  0x2A0103E0, 0) \
     X("LDR W?, [X?,#0x18]",      "LDR W3, [X9,#0x18]",          0xB9401923, 1) \
     X("LDR W?, [X?,#0x18]",      "LDR W3, [X9,#0x1C]",          0xB9401D23, 0) \
     X("LDR W?, [X?,#0x18]",      "LDR X3, [X9,#0x18]",          0xF9400D23, 0) \
@@ -200,6 +226,24 @@ static void line_formats() {
     CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP\nRET\n")));
     CHECK(ARM_PATTERN("NOP\nRET\n/a").length() == 8);
     puts("  line formats ok");
+}
+
+// A function prologue as IDA prints it (STP, MOV): must skip a similar prologue, not treat STP/MOV as wildcards
+static void prologue() {
+    alignas(4) static const uint32_t code[] = {
+        0xD10083FF, 0xA9017BFD, 0x910043FD, 0xAA0103F3, 0xAA1E03E0,   // SUB SP, SP, #0x20; STP; ADD X29; MOV; MOV
+        0xA9BE4FF4, 0xA9017BFD, 0x910043FD, 0xAA0103F3, 0xAA1E03E0,   // STP X20, X19, [SP,#-0x20]!; ... the one wanted
+    };
+    const auto bytes = reinterpret_cast<const uint8_t*>(code);
+#define PROLOGUE "STP             X20, X19, [SP,#?]!\n" \
+                 "STP             X29, X30, [SP,#?]\n" \
+                 "ADD             X29, SP, #0x10\n" \
+                 "MOV             X19, X1\n" \
+                 "MOV             X0, X30"
+    CHECK(ARM_PATTERN(PROLOGUE).find<const uint32_t*>(bytes, sizeof code) == code + 5);
+    CHECK(patterns::RuntimeArmPattern(PROLOGUE).find<const uint32_t*>(bytes, sizeof code) == code + 5);
+#undef PROLOGUE
+    puts("  prologue ok");
 }
 
 // RuntimeArmPattern: the same parse as ArmPattern, from text only known at runtime
@@ -335,6 +379,7 @@ int main() {
     concrete();
     wildcards();
     line_formats();
+    prologue();
     runtime_patterns();
     xor_patterns();
     deref_synthetic();

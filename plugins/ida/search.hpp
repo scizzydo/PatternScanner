@@ -38,6 +38,19 @@ namespace pscan {
         return patterns::RuntimePattern(text.c_str(), text.length(), db_arch());
     }
 
+    // arm64 lines the encoder doesn't know, one per line: they become wildcards matching any instruction. A line that
+    // is just "?" is a deliberate wildcard and isn't listed
+    inline qstring unsupported_lines(const qstring& text) {
+        qstring out;
+        patterns::detail::parse_arm(text.c_str(), text.length(),
+            [&](size_t, const char* instruction) {
+                if (!(instruction[0] == '?' && !instruction[1]) && !patterns::detail::a64_encode_instruction(instruction).mask)
+                    out.cat_sprnt("%s\n", instruction);
+            },
+            [](size_t) {}, [](const char*) {});
+        return out;
+    }
+
     struct hit_t {
         ea_t match = BADADDR;    // where the pattern matched
         ea_t result = BADADDR;   // what find() gives: the X offset and /d /r applied
