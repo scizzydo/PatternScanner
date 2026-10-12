@@ -1,9 +1,9 @@
 // Correctness tests. Exit code 0 = pass. Build with tests/CMakeLists.txt.
-#include "RuntimePattern.hpp"
-#include "CompileTimePattern.hpp"
-#include "XORPattern.hpp"
+#include <PatternScanner/RuntimePattern.hpp>
+#include <PatternScanner/CompileTimePattern.hpp>
+#include <PatternScanner/XORPattern.hpp>
 #ifdef PATTERNS_ARM64
-#include "ArmPattern.hpp"
+#include <PatternScanner/ArmPattern.hpp>
 #endif
 #include "multi_scan.hpp"
 #include <cstdio>

@@ -1,7 +1,7 @@
 #pragma once
 // Strategies for resolving many patterns over one module, for comparison with patterns::find_all.
 // Test/benchmark code, not part of the library. Built only on the public Pattern API (match / resolve).
-#include "Pattern.hpp"
+#include <PatternScanner/Pattern.hpp>
 #include <algorithm>
 #include <atomic>
 #include <thread>

@@ -1,7 +1,7 @@
 // ArmPattern tests. Exit code 0 = pass. Build with tests/CMakeLists.txt.
 // The encoder is checked on every platform against encodings produced by clang's assembler. On Apple arm64 the
 // test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
-#include "ArmXORPattern.hpp"
+#include <PatternScanner/ArmXORPattern.hpp>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>

@@ -1,7 +1,7 @@
 // Single-pattern scan speed.
 //   bench_scan                 synthetic 64 MB of random bytes
 //   bench_scan <module file>   also 40 real signatures sampled from that file (e.g. a game exe or dylib)
-#include "RuntimePattern.hpp"
+#include <PatternScanner/RuntimePattern.hpp>
 #include <chrono>
 #include <cstdio>
 #include <random>

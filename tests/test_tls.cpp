@@ -1,6 +1,6 @@
 // patterns::find_all from a TLS callback: runs as the module is loaded, before the CRT is initialized and before any
 // static constructor or main. Scans this executable's own image. Windows only.
-#include "XORPattern.hpp"
+#include <PatternScanner/XORPattern.hpp>
 #include <cstdio>
 #ifdef _MSC_VER
 #include <windows.h>

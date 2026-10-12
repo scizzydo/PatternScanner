@@ -12,8 +12,8 @@
 // first use, from whichever initializer gets there first; the initialization order of globals across files is
 // unspecified, so a plain global holding the range could still be unset.
 // In a DLL, static init, TLS callbacks and DllMain run under the loader lock: don't wait on other threads there.
-#include "CompileTimePattern.hpp"
-#include "XORPattern.hpp"
+#include <PatternScanner/CompileTimePattern.hpp>
+#include <PatternScanner/XORPattern.hpp>
 #include <array>
 #include <atomic>
 #include <cstdio>

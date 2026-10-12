@@ -1,7 +1,7 @@
 // Resolving many patterns over one module: sequential vs parallel per pattern vs cache-chunked.
 //   bench_multi                 synthetic 96 MB module with 60 planted signatures
 //   bench_multi <module file>   60 unique signatures sampled from that file
-#include "RuntimePattern.hpp"
+#include <PatternScanner/RuntimePattern.hpp>
 #include "multi_scan.hpp"
 #include <chrono>
 #include <cstdio>

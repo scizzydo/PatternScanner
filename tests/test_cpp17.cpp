@@ -1,7 +1,7 @@
 // The pre-C++20 path: macros instead of literals. Built as C++17 by tests/CMakeLists.txt.
-#include "RuntimePattern.hpp"
-#include "CompileTimePattern.hpp"
-#include "XORPattern.hpp"
+#include <PatternScanner/RuntimePattern.hpp>
+#include <PatternScanner/CompileTimePattern.hpp>
+#include <PatternScanner/XORPattern.hpp>
 #include <cstdio>
 
 int main() {

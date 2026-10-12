@@ -1,5 +1,12 @@
 # Pattern Scanning
 
+Header-only. Add `include/` to your include path and include the headers you need:
+```c++
+#include <PatternScanner/CompileTimePattern.hpp>
+#include <PatternScanner/XORPattern.hpp>
+```
+(CMake: `target_include_directories(app PRIVATE path/to/PatternScanner/include)`)
+
 #### Classes
 - Pattern (base class)
 - RuntimePattern
@@ -16,7 +23,7 @@ XORPattern creates the pattern & mask along with two keys arrays during compile 
 
 ArmPattern creates the pattern & mask from the arm64 assembly, with wildcard support. Instructions not implemented would result in a wildcard portion for those 4 bytes. The class is constexpr also, so the assembly is not in the final product (if declaring the pattern with constexpr). One instruction per line; case, indentation and spacing don't matter, so lines pasted from IDA (`LDR W8, [X8,#0x18]`) or lldb (`ldr    w8, [x8, #0x18]`) both work. lldb prints ADRP operands as page counts and branch targets as absolute addresses, so wildcard those (`#?`). Aliases such as `MOV` aren't implemented (they become wildcards); write the underlying `MOVZ`/`ORR` instead.
 
-ArmXORPattern (`ArmXORPattern.hpp`) is ArmPattern with the instruction words and masks stored XOR'd, the way XORPattern stores them. Same syntax, flags and results, plus `[]` and unmask() for the originals. Decoded on the stack only while scanning.
+ArmXORPattern (`PatternScanner/ArmXORPattern.hpp`) is ArmPattern with the instruction words and masks stored XOR'd, the way XORPattern stores them. Same syntax, flags and results, plus `[]` and unmask() for the originals. Decoded on the stack only while scanning.
 
 Every pattern type has a string literal: `_rtpattern` (any standard), and with C++20 `_ctpattern`, `_xorpattern`, `_armpattern`, `_armxorpattern`. Each `_xorpattern` and `_armxorpattern` gets its own random keys from where it's written (file, line, column) and the build time, so the same pattern written twice is stored differently. Before C++20, use the `COMPILETIME_PATTERN`, `XOR_PATTERN`, `ARM_PATTERN` and `ARM_XOR_PATTERN` macros (`XOR_PATTERN` and `ARM_XOR_PATTERN` get per-definition keys from `__FILE__`/`__LINE__`/`__COUNTER__`).
 
