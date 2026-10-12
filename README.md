@@ -127,3 +127,6 @@ ctest --test-dir build -C Release --output-on-failure
 - `example_usage`: usage styles 3-5 above against a module that has to be decrypted first, logging each result as `[count] name address (rebased address)`.
 - `test_tls` (Windows): style 6, `find_all` run from a TLS callback over the executable's own image.
 - `multi_scan.hpp`: other multi-pattern strategies (per-pattern threads, chunks over threads) for the benchmark.
+
+#### Plugins
+- [`plugins/ida`](plugins/ida/README.md): search IDA databases with these patterns (IDA 9.x, Windows/macOS/Linux).
