@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
         printf("  %-34s %8.1f ms  %s\n", name, best, got == want ? "" : "RESULTS DIFFER");
     };
     run("sequential (find() per pattern)", [&] { multi::sequential(mod.data(), mod.size(), pats, want); got = want; });
-    run("chunked, 1 thread", [&] { multi::chunked(mod.data(), mod.size(), pats, got, 1); });
+    run("patterns::find_all (1 thread)", [&] { got.resize(pats.size()); patterns::find_all(mod.data(), mod.size(), pats.data(), pats.size(), got.data()); });
     run("parallel per pattern", [&] { multi::per_pattern(mod.data(), mod.size(), pats, got, threads); });
     run("chunked, all threads", [&] { multi::chunked(mod.data(), mod.size(), pats, got, threads); });
 }

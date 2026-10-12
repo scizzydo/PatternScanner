@@ -659,9 +659,14 @@ namespace patterns {
     }
 
     template <size_t nstr, size_t narr>
+    class ArmXORPattern;
+
+    template <size_t nstr, size_t narr>
     class ArmPattern final : public Pattern {
         std::array<uint32_t, narr> m_instructions{};
         std::array<uint32_t, narr> m_masks{};
+        // Builds from an ArmPattern at compile time, then XORs the instructions
+        friend class ArmXORPattern<nstr, narr>;
     public:
         PATTERNS_CONSTEVAL ArmPattern(const char* p) :
             m_instructions{}, m_masks{}

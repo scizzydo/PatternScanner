@@ -68,11 +68,15 @@ static void literals_and_macros() {
     constexpr auto c = "DE AD BE EF 13 37 C0 DE"_xorpattern; constexpr auto d = "DE AD BE EF 13 37 C0 DE"_xorpattern;
     CHECK(memcmp(a.pattern(), b.pattern(), 8) != 0);
     CHECK(memcmp(c.pattern(), d.pattern(), 8) != 0);
+    CHECK(memcmp(a.mask(), b.mask(), 8) != 0);   // masks are XOR'd too
     CHECK(a.find<const uint8_t*>(buf, sizeof buf) == buf + 2);
     CHECK(d.find<const uint8_t*>(buf, sizeof buf) == buf + 2);
     constexpr auto ct = "DE AD ? EF X 13"_ctpattern;
     static_assert(ct.length() == 5 && ct.offset() == 4);
     CHECK(ct.find<const uint8_t*>(buf, sizeof buf) == buf + 6);
+    constexpr auto xw = "DE AD ? EF X 13"_xorpattern;
+    for (size_t k = 0; k < 5; ++k) CHECK(xw.unmask(k) == ct.mask()[k] && xw[k] == ct.pattern()[k]);
+    CHECK(xw.find<const uint8_t*>(buf, sizeof buf) == buf + 6);
 #endif
     auto m1 = XOR_PATTERN("DE AD BE EF 13 37 C0 DE");   // deliberately not constexpr: still built at compile time
     auto m2 = XOR_PATTERN("DE AD BE EF 13 37 C0 DE");
@@ -175,6 +179,9 @@ static void multi_strategies() {
     multi::per_pattern(mod.data(), mod.size(), pats, got);
     CHECK(got == want);
     for (size_t chunk : { 7, 64, 4096, 1 << 20 }) {
+        got.assign(pats.size(), &got);   // garbage, find_all must overwrite every entry
+        CHECK(patterns::find_all(mod.data(), mod.size(), pats.data(), pats.size(), got.data(), chunk) == pats.size() - 1);
+        CHECK(got == want);
         multi::chunked(mod.data(), mod.size(), pats, got, 1, chunk);
         CHECK(got == want);
         multi::chunked(mod.data(), mod.size(), pats, got, 4, chunk);

@@ -326,9 +326,11 @@ namespace patterns {
 #else
         static constexpr size_t align_size_ = sizeof(void*);
 #endif
+        // Patterns are used through Pattern* but never deleted through one; protected keeps the destructor
+        // trivial (constexpr patterns in C++17) while making `delete` through a Pattern* a compile error
+        ~Pattern() = default;
     public:
         Pattern() = default;
-        ~Pattern() = default;
         constexpr uint32_t length() const {
             return length_;
         }
@@ -352,9 +354,17 @@ namespace patterns {
         T find(const uint8_t* bytes, size_t size) const {
             return reinterpret_cast<T>(find(bytes, size));
         }
-        virtual void* find(const uint8_t* bytes, size_t size) const {
-            const auto hit = scan(bytes, size, pattern(), mask());
-            return hit ? get_result(const_cast<uint8_t*>(hit), bytes + size) : nullptr;
+        void* find(const uint8_t* bytes, size_t size) const {
+            const auto hit = match(bytes, size);
+            return hit ? resolve(hit, bytes + size) : nullptr;
+        }
+        // Address of the first match, before the X offset and /d /r are applied
+        virtual const uint8_t* match(const uint8_t* bytes, size_t size) const {
+            return scan(bytes, size, pattern(), mask());
+        }
+        // What find() returns for a match from match(). end bounds how far /d may read (arm64 ADRP sequences)
+        void* resolve(const uint8_t* match, const uint8_t* end) const {
+            return get_result(const_cast<uint8_t*>(match), end);
         }
         virtual uint8_t operator[](size_t idx) const {
             return pattern()[idx];
@@ -479,7 +489,7 @@ namespace patterns {
                 ++ptr;
             }
         }
-        void* get_result(uint8_t* address, const uint8_t* end) const {
+        void* get_result(uint8_t* address, [[maybe_unused]] const uint8_t* end) const {
 #ifdef PATTERNS_ARM64
             if (deref_) {
                 auto insn = reinterpret_cast<uint32_t*>(address + offset_);
@@ -553,7 +563,7 @@ namespace patterns {
             return nullptr;
         }
 #ifndef PATTERNS_ARM64
-        const intptr_t relative_value(uint8_t* ptr) const {
+        intptr_t relative_value(uint8_t* ptr) const {
             switch (size_) {
             case 1:
                 return static_cast<intptr_t>(*reinterpret_cast<int8_t*>(ptr));
@@ -576,4 +586,31 @@ namespace patterns {
             return detail::stoi(ptr);
         }
     };
+
+    // Resolves many patterns over one range: out[i] = pats[i]->find(start, size). Returns how many matched.
+    // Faster than a find() per pattern: the range is walked in cache-sized chunks with every pattern run over a
+    // chunk while it's hot, so memory is read once instead of once per pattern.
+    // No allocation, threads, CRT state or static initialization, so it's safe from TLS callbacks and DllMain.
+    inline size_t find_all(const uint8_t* start, size_t size, const Pattern* const* pats, size_t count, void** out,
+                           size_t chunk = 1 << 20) {
+        if (!chunk) chunk = 1 << 20;
+        size_t found = 0;
+        for (size_t i = 0; i < count; ++i) out[i] = nullptr;
+        // out[i] holds the raw match until the end. Chunks go in order, so the first hit is the lowest address
+        for (size_t pos = 0; pos < size && found < count; pos += chunk) {
+            for (size_t i = 0; i < count; ++i) {
+                if (out[i]) continue;
+                // Reach length - 1 bytes into the next chunk, so matches straddling the boundary are found,
+                // but no match starting in the next chunk is
+                const size_t n = chunk + pats[i]->length() - 1;
+                if (auto hit = pats[i]->match(start + pos, n < size - pos ? n : size - pos)) {
+                    out[i] = const_cast<uint8_t*>(hit);
+                    ++found;
+                }
+            }
+        }
+        for (size_t i = 0; i < count; ++i)
+            if (out[i]) out[i] = pats[i]->resolve(static_cast<uint8_t*>(out[i]), start + size);
+        return found;
+    }
 }

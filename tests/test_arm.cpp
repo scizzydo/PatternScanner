@@ -1,9 +1,11 @@
 // ArmPattern tests. Exit code 0 = pass. Build with tests/CMakeLists.txt.
 // The encoder is checked on every platform against encodings produced by clang's assembler. On Apple arm64 the
 // test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
-#include "ArmPattern.hpp"
+#include "ArmXORPattern.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 #define CHECK(x) do { if (!(x)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -201,6 +203,56 @@ static void line_formats() {
     puts("  line formats ok");
 }
 
+// ArmXORPattern: the same encoding and results as ArmPattern, different stored words per definition site
+static void xor_patterns() {
+    constexpr auto plain = ARM_PATTERN("NOP\nX LDR W8, [X8,#0x18]\nRET\n/d");
+    constexpr auto a = "NOP\nX LDR W8, [X8,#0x18]\nRET\n/d"_armxorpattern;
+    constexpr auto b = "NOP\nX LDR W8, [X8,#0x18]\nRET\n/d"_armxorpattern;
+    auto m = ARM_XOR_PATTERN("NOP\nX LDR W8, [X8,#0x18]\nRET\n/d");   // deliberately not constexpr: still built at compile time
+    static_assert(a.length() == 12 && a.offset() == 4 && a.deref() && a.aligned());
+    CHECK(memcmp(a.pattern(), b.pattern(), 12) != 0 && memcmp(a.pattern(), m.pattern(), 12) != 0);
+    CHECK(memcmp(a.mask(), b.mask(), 12) != 0 && memcmp(a.mask(), plain.mask(), 12) != 0);
+    for (size_t k = 0; k < 12; ++k) CHECK(a[k] == plain[k] && m[k] == plain[k] && a.unmask(k) == plain.mask()[k]);
+
+    alignas(4) static const uint32_t code[] = { 0x52800000, 0xD503201F, 0xB9401908, 0xD65F03C0, 0 };
+    const auto bytes = reinterpret_cast<const uint8_t*>(code);
+    CHECK(a.match(bytes, sizeof code) == bytes + 4);
+    CHECK(b.match(bytes, sizeof code) == bytes + 4);
+    CHECK(m.match(bytes, sizeof code) == plain.match(bytes, sizeof code));
+    CHECK(ARM_XOR_PATTERN("NOP\nX LDR W?, [X?,#?]").find<const uint8_t*>(bytes, sizeof code) == bytes + 8);
+    puts("  xor patterns ok");
+}
+
+// The ArmXORPattern's instruction words, masks and source text must not be in our own executable. The needles
+// are stored scrambled and rebuilt at runtime, otherwise the test itself would put them in the binary.
+static void xor_no_plaintext_in_binary(const char* exe) {
+    // MOVZ W3, #0x5A3C; MOVK W?, #0x9E1D, LSL #16; LDR W?, [X3,#?] as encoded (wildcard bits zero), then their masks
+    static const uint32_t scrambled[] = { 0x528B4783 ^ 0xA5A5A5A5, 0x72B3C3A0 ^ 0xA5A5A5A5, 0xB9400060 ^ 0xA5A5A5A5,
+                                          0xFFFFFFFF ^ 0xA5A5A5A5, 0xFFFFFFE0 ^ 0xA5A5A5A5, 0xFFC003E0 ^ 0xA5A5A5A5 };
+    volatile uint32_t key = 0xA5A5A5A5;   // volatile, or the optimizer folds the descramble back into the plaintext
+    uint32_t words[3], masks[3];
+    for (int i = 0; i < 3; ++i) { words[i] = scrambled[i] ^ key; masks[i] = scrambled[i + 3] ^ key; }
+    auto xp = ARM_XOR_PATTERN("MOVZ W3, #0x5A3C\nMOVK W?, #0x9E1D, LSL #16\nLDR W?, [X3,#?]");
+    CHECK(xp.find<const uint32_t*>(reinterpret_cast<const uint8_t*>(words), sizeof words) == words);
+    for (size_t k = 0; k < 12; ++k) CHECK(xp.unmask(k) == reinterpret_cast<const uint8_t*>(masks)[k]);
+
+    FILE* f = fopen(exe, "rb");
+    if (!f) { printf("  binary check skipped (can't open %s)\n", exe); return; }
+    std::vector<uint8_t> bin;
+    uint8_t chunk[65536];
+    for (size_t n; (n = fread(chunk, 1, sizeof chunk, f)) > 0;) bin.insert(bin.end(), chunk, chunk + n);
+    fclose(f);
+    auto contains = [&](const void* needle, size_t len) {
+        return std::search(bin.begin(), bin.end(), (const uint8_t*)needle, (const uint8_t*)needle + len) != bin.end();
+    };
+    char text[] = "MOVZ W3, #0x5A3B";   // last digit bumped so this literal isn't the needle
+    text[sizeof text - 2] = 'C';
+    CHECK(!contains(words, sizeof words));
+    CHECK(!contains(masks, sizeof masks));
+    CHECK(!contains(text, sizeof text - 1));
+    puts("  xor: no plaintext in binary ok");
+}
+
 #ifdef PATTERNS_ARM64
 // /d on hand-built code: ADRP beyond 2GB, and ADRP followers bounded by the scanned size
 static void deref_synthetic() {
@@ -284,10 +336,12 @@ static void deref_relocated() {
 }
 #endif
 
-int main() {
+int main(int, char** argv) {
     concrete();
     wildcards();
     line_formats();
+    xor_patterns();
+    xor_no_plaintext_in_binary(argv[0]);
 #ifdef PATTERNS_ARM64
     deref_synthetic();
 #endif

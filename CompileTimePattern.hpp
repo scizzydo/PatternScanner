@@ -7,7 +7,7 @@ namespace patterns {
     namespace detail {
         constexpr size_t pattern_length(const char* s, size_t nstr) {
             size_t res = 0;
-            for (auto i = 0; i < nstr - 1; i += 2) {
+            for (size_t i = 0; i < nstr - 1; i += 2) {
                 auto c = s[i];
                 if (c == 'X' || c == 'x') {
                     while (i + 1 < nstr && s[i + 1] != ' ')
@@ -39,7 +39,7 @@ namespace patterns {
         {
             length_ = narr;
             auto n = 0;
-            for (auto i = 0; i < nstr; i += 2) {
+            for (size_t i = 0; i < nstr; i += 2) {
                 auto ptr = &p[i];
                 if (p[i] == '?') {
                     m_pattern[n] = 0;
