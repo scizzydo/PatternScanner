@@ -17,6 +17,9 @@ int main() {
     auto arm = ARM_PATTERN("NOP\nRET");
     auto arm_xor = ARM_XOR_PATTERN("NOP\nRET");
     patterns::RuntimeArmPattern arm_rt("NOP\nRET");
+    // Negative PC-relative offsets in a constant expression (no left shift of a negative value)
+    constexpr auto adr = ARM_PATTERN("ADR X3, #-0x4\nADRP X1, #-0x2000");
+    const auto adr_words = reinterpret_cast<const uint32_t*>(adr.pattern());
     const bool ok = ct.find<const uint8_t*>(buf, 8) == buf + 2
                  && x1.find<const uint8_t*>(buf, 8) == buf + 2
                  && x2.find<const uint8_t*>(buf, 8) == buf + 2
@@ -24,6 +27,7 @@ int main() {
                  && arm.find<const uint8_t*>(code_bytes, 8) == code_bytes
                  && arm_xor.find<const uint8_t*>(code_bytes, 8) == code_bytes
                  && arm_rt.find<const uint8_t*>(code_bytes, 8) == code_bytes
+                 && adr_words[0] == 0x10FFFFE3 && adr_words[1] == 0xD0FFFFE1
                  && memcmp(x1.pattern(), x2.pattern(), 5) != 0;   // per-definition keys
     puts(ok ? "c++17 macros ok" : "FAIL c++17 macros");
     return !ok;

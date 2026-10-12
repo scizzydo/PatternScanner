@@ -311,7 +311,7 @@ namespace patterns {
             if (!(imm[0] == '?' && imm[1] == '\0')) {
                 int64_t offset = stoi<int64_t>(imm);
                 if ((base.pattern >> 31) & 1) offset >>= 12;
-                base.set_bits(static_cast<uint32_t>((offset << 24) | ((offset >> 2) & 0x7FFFF)), (3 << 24 | 0x7FFFF), 5);
+                base.set_bits(static_cast<uint32_t>((static_cast<uint64_t>(offset) << 24) | ((offset >> 2) & 0x7FFFF)), (3 << 24 | 0x7FFFF), 5);
             }
             return base;
         }
@@ -471,12 +471,18 @@ namespace patterns {
                 char imm[24] = {};
                 i = parse_imm_token(instr, i, imm);
                 if (imm[0] != '?') {
-                    uint64_t immVal = stoi<uint64_t>(imm);
-                    // Unknown width (Rd is "?"): a value that fits in 32 bits can be either, and the two only differ in N
-                    const bool is64 = width == 1 || (width < 0 && immVal > 0xFFFFFFFFULL);
-                    const uint32_t n_mask = (width >= 0 || is64) ? 1 : 0;
-                    auto [ ok, N, imms, immr ] = encode_bitmask_immediate(immVal, is64);
-                    if (ok) base.set_bits((N << 12 | immr << 6 | imms), (n_mask << 12 | 0x3F << 6 | 0x3F), 10);
+                    const uint64_t immVal = stoi<uint64_t>(imm);
+                    // sf, N, immr and imms for one width; mask 0 if the value doesn't fit it
+                    auto encode = [&](bool is64) -> ArmOpcode {
+                        auto [ ok, N, imms, immr ] = encode_bitmask_immediate(immVal, is64);
+                        if (!ok) return { 0, 0 };
+                        ArmOpcode e{ 0, 0 };
+                        e.set_bits((is64 ? 1u : 0u) << 21 | N << 12 | immr << 6 | imms, 1u << 21 | 1 << 12 | 0x3F << 6 | 0x3F, 10);
+                        return e;
+                    };
+                    // Unknown width (Rd and Rn "?"): either, keeping the bits both encodings share
+                    const ArmOpcode e = width >= 0 ? encode(width == 1) : either(encode(false), encode(true));
+                    base.set_bits(e.pattern, e.mask);
                 }
                 return base;
             }
@@ -523,11 +529,13 @@ namespace patterns {
                 char imm[24] = {};
                 i = skip_whitespace(instr, parse_imm_token(instr, i, imm));
                 int sh = -1;   // LSL #12 (1) or #0 (0) when written, -1 if not or #?
+                bool sh_any = false;   // LSL #?: either, so the immediate is the field as written
                 if (instr[i] == ',') {
                     i = skip_whitespace(instr, i + 1);
                     if (starts_with(&instr[i], "LSL")) {
                         i = skip_char(instr, skip_whitespace(instr, i + 3), '#');
                         if (instr[i] != '?') sh = stoi(&instr[i]) == 12 ? 1 : 0;
+                        else sh_any = true;
                     }
                 }
                 if (imm[0] != '?') {
@@ -535,10 +543,10 @@ namespace patterns {
                     // As assemblers do: a negative immediate is the opposite operation (ADD #-8 is SUB #8, CMP #-1
                     // is CMN #1), and a multiple of 0x1000 the shifted form (#0x1000 is #1, LSL #12)
                     if (val < 0) { base.pattern ^= 1u << 30; val = -val; }
-                    if (sh < 0 && val > 0xFFF && !(val & 0xFFF)) { sh = 1; val >>= 12; }
+                    if (sh < 0 && !sh_any && val > 0xFFF && !(val & 0xFFF)) { sh = 1; val >>= 12; }
                     if (val > 0xFFF) return { 0, 0 };
                     base.set_bits(static_cast<uint32_t>(val), 0xFFF, 10);
-                    if (sh < 0) sh = 0;
+                    if (sh < 0 && !sh_any) sh = 0;
                 }
                 if (sh >= 0) base.set_bits(static_cast<uint32_t>(sh), 1, 22);
                 return base;
@@ -689,24 +697,37 @@ namespace patterns {
                     op.set_bits(0x12800000, 0x3F800000);   // MOVZ or MOVN: bit 30 of opc left open, bit 29 clear (not MOVK)
                     return op;
                 }
-                const unsigned width = is64 ? 64 : 32;
-                const uint64_t ones = is64 ? ~0ULL : 0xFFFFFFFFULL;
-                const uint64_t v = stoi<uint64_t>(imm) & ones;   // unsigned: 64-bit hex fits, and negatives wrap
-                for (uint32_t hw = 0; hw < width / 16; ++hw) {
-                    if ((v & ~(0xFFFFULL << (hw * 16))) == 0) {
-                        op.set_bits(0x52800000 | hw << 21 | static_cast<uint32_t>(v >> (hw * 16)) << 5, 0x7FFFFFE0);
-                        return op;
+                const uint64_t raw = stoi<uint64_t>(imm);   // unsigned: 64-bit hex fits, and negatives wrap
+                // The encoding for one width, sf included; mask 0 if the value doesn't fit it
+                auto encode = [&](bool wide) -> ArmOpcode {
+                    const unsigned width = wide ? 64 : 32;
+                    const uint64_t ones = wide ? ~0ULL : 0xFFFFFFFFULL;
+                    // W takes 32-bit values, or negative ones that sign-extend from 32 bits
+                    if (!wide && raw > ones && raw < 0xFFFFFFFF80000000ULL) return { 0, 0 };
+                    const uint64_t v = raw & ones;
+                    const uint32_t sf = wide ? 1u << 31 : 0;
+                    ArmOpcode e{ 0, 0 };
+                    for (uint32_t hw = 0; hw < width / 16; ++hw) {
+                        if ((v & ~(0xFFFFULL << (hw * 16))) == 0) {
+                            e.set_bits(sf | 0x52800000 | hw << 21 | static_cast<uint32_t>(v >> (hw * 16)) << 5, 0xFFFFFFE0);
+                            return e;
+                        }
                     }
-                }
-                for (uint32_t hw = 0; hw < width / 16; ++hw) {
-                    if ((~v & ones & ~(0xFFFFULL << (hw * 16))) == 0) {
-                        op.set_bits(0x12800000 | hw << 21 | static_cast<uint32_t>((~v & ones) >> (hw * 16)) << 5, 0x7FFFFFE0);
-                        return op;
+                    for (uint32_t hw = 0; hw < width / 16; ++hw) {
+                        if ((~v & ones & ~(0xFFFFULL << (hw * 16))) == 0) {
+                            e.set_bits(sf | 0x12800000 | hw << 21 | static_cast<uint32_t>((~v & ones) >> (hw * 16)) << 5, 0xFFFFFFE0);
+                            return e;
+                        }
                     }
-                }
-                auto [ ok, N, imms, immr ] = encode_bitmask_immediate(v, is64);
-                if (!ok) return { 0, 0 };
-                op.set_bits(0x320003E0 | N << 22 | immr << 16 | imms << 10, 0x7FFFFFE0);
+                    auto [ ok, N, imms, immr ] = encode_bitmask_immediate(v, wide);
+                    if (!ok) return { 0, 0 };
+                    e.set_bits(sf | 0x320003E0 | N << 22 | immr << 16 | imms << 10, 0xFFFFFFE0);
+                    return e;
+                };
+                // A bare "?" Rd: W or X, keeping the bits both encodings share
+                const ArmOpcode e = known_width ? encode(is64) : either(encode(false), encode(true));
+                if (!e.mask) return { 0, 0 };
+                op.set_bits(e.pattern, e.mask);
                 return op;
             }
 
@@ -1462,7 +1483,7 @@ namespace patterns {
             while (str[i] == ' ' || str[i] == '\t') ++i;
             size_t j = 0;
             for (; str[i] && str[i] != '\n'; ++i) {
-                if (j + 1 >= N) throw std::logic_error("Instruction line is too long!");
+                if (j + 1 >= N) PATTERNS_FAIL("Instruction line is too long!");
                 out[j++] = (str[i] >= 'a' && str[i] <= 'z') ? static_cast<char>(str[i] - 'a' + 'A') : str[i];
             }
             while (j && isspace(out[j - 1])) --j;

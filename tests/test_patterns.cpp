@@ -91,6 +91,12 @@ static void edge_cases() {
     threw = false;
     try { patterns::RuntimePattern("E8 X4 ? ? ? ? /r8", patterns::arch::x86); } catch (const std::logic_error&) { threw = true; }
     CHECK(!threw);   // 8 isn't a size on x86, so it's ignored like any other unknown flag
+    // X<n> is the bytes left in the instruction, /d1 the operand size: jb short (72 rel8), as in the README
+    const uint8_t jb[] = { 0xBA, 0xBE, 0xCA, 0xFE, 0x72, 0x05, 0x11, 0x22 };
+    CHECK(patterns::RuntimePattern("BA BE CA FE 72 X1 ? 11 22 /d1", patterns::arch::x64).find<const uint8_t*>(jb, 8) == jb + 6 + 5);
+    // Flags are read only up to the given length: the "1" past it isn't a size
+    const patterns::RuntimePattern bounded("E8 X4 ? ? ? ? /d1", 16, patterns::arch::x64);
+    CHECK(bounded.find<uint8_t*>(code, 16) == code + 6 + 0x10);
     puts("  edge cases ok");
 }
 

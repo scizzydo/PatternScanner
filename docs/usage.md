@@ -78,3 +78,7 @@ Each `_xorpattern` and `_armxorpattern` gets its own random keys from where it's
 ## SIMD
 
 Scanning uses SSE2 (x86/x64) or NEON (arm64) when available. Define `PATTERNS_NO_SIMD` before including to use a portable 64-bit integer scan instead (e.g. kernel code).
+
+## Without exceptions
+
+Pattern errors (bad hex, `/d` with `/r`...) throw `std::logic_error`, a compile error for compile-time patterns. Built without exceptions (`-fno-exceptions`, kernel code) they are still compile errors there, and trap at runtime (`RuntimePattern` with bad text).

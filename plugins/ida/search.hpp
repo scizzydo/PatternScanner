@@ -86,14 +86,14 @@ namespace pscan {
                     hit_t h;
                     h.match = lo + (m - buf);
                     if (h.match >= end) return true;
-                    try {
-                        const auto r = reinterpret_cast<uintptr_t>(p.resolve(m, run_end, &h.is_value));
+                    const auto r = reinterpret_cast<uintptr_t>(p.resolve(m, run_end, &h.is_value));
+                    // nullptr (not a value): /d at an instruction it can't decode
+                    if (r || h.is_value) {
                         // Addresses come back in buffer terms; the arithmetic wraps, so targets outside it work too
                         h.result = h.is_value ? ea_t(r) : ea_t(lo + (r - reinterpret_cast<uintptr_t>(buf)));
                         if (!inf_is_64bit()) h.result &= 0xFFFFFFFF;
                         h.resolved = true;
                     }
-                    catch (const std::logic_error&) {}
                     if (!cb(h)) return true;
                     cur = m + 1;
                 }

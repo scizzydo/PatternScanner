@@ -53,5 +53,6 @@ At the `X` instruction:
 - `B`/`BL`, `B.cond`, `CBZ`/`CBNZ`, `TBZ`/`TBNZ`, `LDR` (literal) and `ADR` give their target.
 - `ADRP` gives the page plus the `ADD`/`SUB` and load/store offset (including floating-point loads like `LDR D0`) that follow it through the same register (skipping NOPs and instructions that leave the register alone).
 - `MOVZ`/`MOVN`, `ADD`/`SUB` immediates and load/store offsets give the value.
+- Any other instruction: `find()` returns `nullptr`, as for no match.
 
 `/r` is not used on arm64.

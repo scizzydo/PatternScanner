@@ -722,6 +722,17 @@
     X("FMOV D?, #?",           "FMOV D0, #1.0",               0x1E6E1000, 1) \
     X("FMOV D?, #?",           "FMOV S0, #1.0",               0x1E2E1000, 0) \
     X("FMOV D?, #?",           "FMOV D0, D1",                 0x1E604020, 0) \
+    X("ADD X?, X?, #0x123, LSL #?", "ADD X0, X1, #0x123, LSL #12", 0x91448C20, 1) \
+    X("ADD X?, X?, #0x123, LSL #?", "ADD X0, X1, #0x123",       0x91048C20, 1) \
+    X("SUB ?, ?, #0x123, LSL #?", "SUB W2, W3, #0x123, LSL #12", 0x51448C62, 1) \
+    X("TST ?, #0x3FFFC0",        "TST X0, #0x3FFFC0",           0xF27A3C1F, 1) \
+    X("TST ?, #0x3FFFC0",        "TST W0, #0x3FFFC0",           0x721A3C1F, 1) \
+    X("MOV ?, #0xFFFFFFFF00000000", "MOV X0, #0xFFFFFFFF00000000", 0xB2607FE0, 1) \
+    X("MOV ?, #0xFFFFFFFF00000000", "MOV X0, #0",               0xD2800000, 0) \
+    X("MOV ?, #0x1FFFE00",       "MOV X1, #0x1FFFE00",          0xB2773FE1, 1) \
+    X("MOV ?, #0x1FFFE00",       "MOV W1, #0x1FFFE00",          0x32173FE1, 1) \
+    X("MOV ?, #0xFFFFFFFF",      "MOV W0, #-1",                 0x12800000, 1) \
+    X("MOV ?, #0xFFFFFFFF",      "MOV X0, #0xFFFFFFFF",         0xB2407FE0, 1) \
     X("FMOV D0, #1.0",         "FMOV D0, #-1.0",              0x1E7E1000, 0)
 
 struct Word { uint32_t pat, mask; };
@@ -956,6 +967,9 @@ static void deref_synthetic() {
         const auto pg = (reinterpret_cast<uintptr_t>(&code[1]) & ~uintptr_t(0xFFF)) + 0x5000;
         CHECK(adrl.find<uintptr_t>(b, sizeof code) == pg + f.add);
     }
+    // An instruction /d can't resolve (STP X29, X30, [SP,#-0x10]!): no result, not an exception
+    alignas(4) const uint32_t stp[] = { 0xA9BF7BFD };
+    CHECK(patterns::RuntimeArmPattern("X ?\n/d").find<void*>(reinterpret_cast<const uint8_t*>(stp), 4) == nullptr);
     puts("  /d on synthetic code ok");
 }
 
