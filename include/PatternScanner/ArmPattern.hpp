@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
-#include <bit>
 #include <array>
+#include <tuple>
 
 #include "Pattern.hpp"
 
@@ -148,6 +148,18 @@ namespace patterns {
             return (v >> (n & 63)) | (v << (-n & 63));
         }
 
+        // std::countr_zero / countl_zero are C++20; the macros need C++17
+        constexpr int countr_zero(uint64_t n) {
+            int c = 0;
+            for (; c < 64 && !(n >> c & 1); ++c) {}
+            return c;
+        }
+        constexpr int countl_zero(uint64_t n) {
+            int c = 0;
+            for (; c < 64 && !(n >> (63 - c) & 1); ++c) {}
+            return c;
+        }
+
         constexpr uint64_t clear_trailing_ones(uint64_t n) {
             return n & (n + 1);
         }
@@ -161,11 +173,11 @@ namespace patterns {
             if (val == 0 || ~val == 0)
                 return { false, 0, 0, 0 };
 
-            int rotation = std::countr_zero(clear_trailing_ones(val));
+            int rotation = countr_zero(clear_trailing_ones(val));
             uint64_t normalized = rotate_right(val, rotation & 63);
 
-            int zeroes = std::countl_zero(normalized);
-            int ones = std::countr_zero(~normalized);
+            int zeroes = countl_zero(normalized);
+            int ones = countr_zero(~normalized);
             int size = zeroes + ones;
 
             if (rotate_right(val, size & 63) != val)
@@ -671,6 +683,7 @@ namespace patterns {
         PATTERNS_CONSTEVAL ArmPattern(const char* p) :
             m_instructions{}, m_masks{}
         {
+            arch_ = arch::arm64;
             length_ = narr * 4;
             uint32_t idx = 0;
             // Find the options
@@ -698,10 +711,12 @@ namespace patterns {
     };
 }
 
+#ifdef PATTERNS_LITERALS
 template<patterns::detail::const_string str>
 PATTERNS_CONSTEVAL auto operator""_armpattern() {
     return patterns::ArmPattern<str.length, patterns::detail::total_instructions(str.data, str.size)>(str.data);
 }
+#endif
 
 #ifndef ARM_PATTERN
 #define ARM_PATTERN(x) ([] { constexpr auto p = patterns::ArmPattern<sizeof(x)-1, patterns::detail::total_instructions(x)>(x); return p; }())

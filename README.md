@@ -18,6 +18,7 @@ target_link_libraries(app PRIVATE PatternScanner::PatternScanner)
 - XORPattern
 - ArmPattern
 - ArmXORPattern
+- RuntimeArmPattern
 
 RuntimePattern will allocate the pattern & mask with std::vectors default allocator along with leaving the pattern string in the binary.
 
@@ -33,12 +34,17 @@ Every pattern type has a string literal: `_rtpattern` (any standard), and with C
 
 Compile-time patterns (`_ctpattern`, `_xorpattern`, `_armpattern`, `_armxorpattern` and their macros) are always built at compile time, so the pattern text never ends up in the binary. The class names still do, through RTTI, because `Pattern` is polymorphic. Build with `/GR-` (MSVC) or `-fno-rtti` (clang/gcc) to strip them.
 
+RuntimeArmPattern (`PatternScanner/RuntimeArmPattern.hpp`) is ArmPattern built at runtime, for assembly only known then (user input, config files).
+
+#### Target architecture
+/d, /r, `X<len>` and /a depend on the architecture of the code being scanned (`patterns::arch::x86`, `x64` or `arm64`). By default that's the one you compile for (`patterns::host_arch`); ArmPattern, ArmXORPattern and RuntimeArmPattern are always arm64. To scan code of another architecture, e.g. from a disassembler plugin, pass it to RuntimePattern: `patterns::RuntimePattern("E8 X4 ? ? ? ? /d", patterns::arch::x86)`. `resolve(match, end, &is_value)` reports whether the result is an address or a value read from the code (/r; arm64 /d on MOVZ, ADD, or a lone LDR/STR offset).
+
 Scanning uses SSE2 (x86/x64) or NEON (arm64) when available. Define `PATTERNS_NO_SIMD` before including to use a portable 64-bit integer scan instead (e.g. kernel code).
 
 #### Pattern Flags:
 - d: Dereference from the found address, or found address + offset ( addr + size + relative address )
-- r: Read the relative value at the address, or at the address + offset (not used on arm)
-- a: Only match at aligned addresses. 4 byte alignment x32 & arm64, 8 byte alignment x64
+- r: Read the relative value at the address, or at the address + offset (not used on arm64)
+- a: Only match at aligned addresses. 4 byte alignment x86 & arm64, 8 byte alignment x64
 - x: This one is used inside of the pattern itself, to show where the offset is at (start address of what we want to capture). This can be followed by a 1/2/4 or 8 for the size of the operand when doing /r or /d
 
 
@@ -117,7 +123,7 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 - `test_patterns`: edge cases, fuzzing against a naive scanner, per-definition XOR keys, and a check that its own binary contains no pattern plaintext. Also built with `PATTERNS_NO_SIMD`.
 - `test_cpp17`: the macro path.
-- `test_arm`: ArmPattern encodings checked against clang's assembler (concrete instructions must encode exactly, wildcard patterns must match / not match), line formats, and `/d` resolution. On Apple arm64 it also re-assembles its tables and resolves `/d` on linker-relocated ADRP/ADD/LDR/BL code.
+- `test_arm`: ArmPattern encodings checked against clang's assembler (concrete instructions must encode exactly, wildcard patterns must match / not match), line formats, RuntimeArmPattern parsing the same, and `/d` resolution. On Apple arm64 it also re-assembles its tables and resolves `/d` on linker-relocated ADRP/ADD/LDR/BL code.
 - `example_usage`: usage styles 3-5 above against a module that has to be decrypted first, logging each result as `[count] name address (rebased address)`.
 - `test_tls` (Windows): style 6, `find_all` run from a TLS callback over the executable's own image.
 - `multi_scan.hpp`: other multi-pattern strategies (per-pattern threads, chunks over threads) for the benchmark.

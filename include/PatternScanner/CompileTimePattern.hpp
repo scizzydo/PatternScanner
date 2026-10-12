@@ -50,9 +50,8 @@ namespace patterns {
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
                     if (i + 1 < nstr && p[i + 1] != ' ') {
-#ifndef PATTERNS_ARM64
-                        insn_len_ = get_inst_len_opt(&p[++i]);
-#endif
+                        if (arch_ != arch::arm64)
+                            insn_len_ = get_inst_len_opt(&p[i + 1]);
                         while (i + 1 < nstr && p[i + 1] != ' ')
                             ++i;
                     }

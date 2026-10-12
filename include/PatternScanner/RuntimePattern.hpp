@@ -10,7 +10,9 @@ namespace patterns {
         std::vector<uint8_t> m_pattern;
         std::vector<uint8_t> m_mask;
     public:
-        RuntimePattern(const char* p, size_t len) {
+        // target: the architecture of the code being scanned, for /d /r, X<len> and /a (see patterns::arch)
+        RuntimePattern(const char* p, size_t len, arch target = host_arch) {
+            arch_ = target;
             int n = 0;
             for (size_t i = 0; i < len; i += 2) {
                 auto ptr = &p[i];
@@ -23,9 +25,8 @@ namespace patterns {
                 else if (*ptr == 'X' || *ptr == 'x') {
                     offset_ = n;
                     if (i + 1 < len && p[i + 1] != ' ') {
-#ifndef PATTERNS_ARM64
-                        insn_len_ = get_inst_len_opt(&p[++i]);
-#endif
+                        if (arch_ != arch::arm64)
+                            insn_len_ = get_inst_len_opt(&p[i + 1]);
                         while (i + 1 < len && p[i + 1] != ' ')
                             ++i;
                     }
@@ -45,8 +46,8 @@ namespace patterns {
             }
             length_ = n;
         }
-        RuntimePattern(const char* p) :
-            RuntimePattern(p, strlen(p))
+        RuntimePattern(const char* p, arch target = host_arch) :
+            RuntimePattern(p, strlen(p), target)
         {
         }
         ~RuntimePattern() = default;

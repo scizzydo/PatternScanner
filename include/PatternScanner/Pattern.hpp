@@ -14,8 +14,8 @@
 #define PATTERNS_NEON
 #endif
 
-// arm64 instruction semantics (/d decoding, 4-byte alignment). __arm64__ alone is Apple only: GCC and clang
-// elsewhere define __aarch64__, MSVC _M_ARM64
+// Compiling for arm64: patterns default to arm64 semantics (/d decoding, 4-byte alignment). __arm64__ alone is
+// Apple only: GCC and clang elsewhere define __aarch64__, MSVC _M_ARM64
 #if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 #define PATTERNS_ARM64
 #endif
@@ -122,7 +122,6 @@ namespace patterns {
                 if ((at[j] ^ pat[j]) & msk[j]) return false;
             return true;
         }
-#ifdef PATTERNS_ARM64
         template<typename T>
         T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
             constexpr size_t int_width = sizeof(int32_t) * 8;
@@ -303,29 +302,35 @@ namespace patterns {
             }
             return false;
         }
-#endif
     }
+
+    // Instruction set a pattern's /d /r, X<len> and /a follow. Defaults to the one being compiled for; RuntimePattern
+    // takes another, to scan code of a different architecture (e.g. from a disassembler plugin)
+    enum class arch : uint8_t { x86, x64, arm64 };
+#ifdef PATTERNS_ARM64
+    constexpr arch host_arch = arch::arm64;
+#else
+    constexpr arch host_arch = sizeof(void*) == 8 ? arch::x64 : arch::x86;
+#endif
 
     class Pattern {
     protected:
         uint32_t length_ = 0;
         uint32_t offset_ = 0;
         bool deref_ = false;
-#ifndef PATTERNS_ARM64
-        // Remaining bytes from the offset when used in dereferencing
+        // x86/x64 only. Remaining bytes from the offset when used in dereferencing
         uint32_t insn_len_ = 0;
-        // Since all arm64 instructions are 32 bit and encoded, just doing deref instead of both deref and relative
-        // Defaulting 4 byte relative address reading
+        // x86/x64 only (arm64 instructions are 32 bit and encoded, so arm64 has just deref). Defaulting 4 byte
+        // relative address reading
         uint32_t size_ = 4;
         bool rel_ = false;
-#endif
         bool align_ = false;
-#ifdef PATTERNS_ARM64
+        // Set before parsing: the flags and X<len> are read per architecture
+        arch arch_ = host_arch;
         // arm64 instructions are all 32 bits, so the align scanning will be at the instruction level
-        static constexpr size_t align_size_ = 4;
-#else
-        static constexpr size_t align_size_ = sizeof(void*);
-#endif
+        constexpr size_t align_size() const {
+            return arch_ == arch::x64 ? 8 : 4;
+        }
         // Patterns are used through Pattern* but never deleted through one; protected keeps the destructor
         // trivial (constexpr patterns in C++17) while making `delete` through a Pattern* a compile error
         ~Pattern() = default;
@@ -340,13 +345,14 @@ namespace patterns {
         constexpr bool deref() const {
             return deref_;
         }
-#ifndef PATTERNS_ARM64
         constexpr bool relative() const {
             return rel_;
         }
-#endif
         constexpr bool aligned() const {
             return align_;
+        }
+        constexpr arch target() const {
+            return arch_;
         }
         virtual const uint8_t* mask() const = 0;
         virtual const uint8_t* pattern() const = 0;
@@ -362,9 +368,11 @@ namespace patterns {
         virtual const uint8_t* match(const uint8_t* bytes, size_t size) const {
             return scan(bytes, size, pattern(), mask());
         }
-        // What find() returns for a match from match(). end bounds how far /d may read (arm64 ADRP sequences)
-        void* resolve(const uint8_t* match, const uint8_t* end) const {
-            return get_result(const_cast<uint8_t*>(match), end);
+        // What find() returns for a match from match(). end bounds how far /d may read (arm64 ADRP sequences).
+        // *is_value is set when the result is a value read from the code (/r; arm64 /d on LDR/STR offsets, MOVZ,
+        // ADD) rather than an address
+        void* resolve(const uint8_t* match, const uint8_t* end, bool* is_value = nullptr) const {
+            return get_result(const_cast<uint8_t*>(match), end, is_value);
         }
         virtual uint8_t operator[](size_t idx) const {
             return pattern()[idx];
@@ -376,7 +384,7 @@ namespace patterns {
             if (size < length_) return nullptr;
             if (!length_) return bytes;
             const size_t last = size - length_;
-            const size_t step = align_ ? align_size_ : 1;
+            const size_t step = align_ ? align_size() : 1;
             // Aligned scans align to the absolute address, not to wherever the caller's buffer starts
             size_t i = (step - reinterpret_cast<uintptr_t>(bytes) % step) % step;
             // Anchors: first and last of the most specific bytes (most mask bits set). Far apart, so random
@@ -463,35 +471,29 @@ namespace patterns {
             return (detail::get_bits(c[0]) << 4 | detail::get_bits(c[1]));
         }
         constexpr void handle_options(const char* ptr) {
+            const bool arm64 = arch_ == arch::arm64;
             while (*ptr) {
-#ifdef PATTERNS_ARM64
-                if (*ptr == 'd')
-                    deref_ = true;
-#else
                 if (*ptr == 'd') {
                     if (rel_) throw std::logic_error("Cannot use relative and deref together!");
                     deref_ = true;
                 }
-                else if (*ptr == 'r') {
+                else if (*ptr == 'r' && !arm64) {
                     if (deref_) throw std::logic_error("Cannot use relative and deref together!");
                     rel_ = true;
                 }
-#endif
                 else if (*ptr == 'a')
                     align_ = true;
-#ifndef PATTERNS_ARM64
                 // Check the next character to see what size we're reading at this relative address
-                else if (*ptr > '0' && (sizeof(void*) == 0x8 ? *ptr < '9' : *ptr < '5')) {
+                else if (!arm64 && *ptr > '0' && (arch_ == arch::x64 ? *ptr < '9' : *ptr < '5')) {
                     size_ = *ptr - '0';
                     if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
                 }
-#endif
                 ++ptr;
             }
         }
-        void* get_result(uint8_t* address, [[maybe_unused]] const uint8_t* end) const {
-#ifdef PATTERNS_ARM64
-            if (deref_) {
+        void* get_result(uint8_t* address, const uint8_t* end, bool* is_value = nullptr) const {
+            if (is_value) *is_value = false;
+            if (arch_ == arch::arm64 && deref_) {
                 auto insn = reinterpret_cast<uint32_t*>(address + offset_);
                 int64_t offset = 0;
                 bool is_sub = false, is_adrp = false;
@@ -537,32 +539,33 @@ namespace patterns {
                 else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset) 
                         || detail::a64_decode_ldrh(*insn, nullptr, nullptr, &offset)
                         || detail::a64_decode_str(*insn, nullptr, nullptr, &offset)) {
+                    if (is_value) *is_value = true;
                     return reinterpret_cast<void*>(offset);
                 }
                 else if (detail::a64_decode_movz(*insn, &sf, nullptr, &offset)
                     || detail::a64_decode_arithmetic(*insn, nullptr, &sf, nullptr, nullptr, &offset)) {
+                    if (is_value) *is_value = true;
                     return reinterpret_cast<void*>((sf ? offset : static_cast<int32_t>(offset)));
                 }
                 else
                     throw std::logic_error("Failed to decode instruction with defined functions");
-#else
-            if (deref_ || rel_) {
+            }
+            else if (arch_ != arch::arm64 && (deref_ || rel_)) {
                 const auto relative_address = relative_value(address + offset_);
                 if (deref_) {
                     return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address)
                         + offset_ + insn_len_ + relative_address);
                 }
                 else {
+                    if (is_value) *is_value = true;
                     return reinterpret_cast<void*>(relative_address);
                 }
-#endif
             }
             else {
                 return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(address) + offset_);
             }
             return nullptr;
         }
-#ifndef PATTERNS_ARM64
         intptr_t relative_value(uint8_t* ptr) const {
             switch (size_) {
             case 1:
@@ -577,9 +580,8 @@ namespace patterns {
 #endif
             }
             // Should never hit here
-            return NULL;
+            return 0;
         }
-#endif
         constexpr int32_t get_inst_len_opt(const char* ptr) const {
             if (*ptr > '9' || *ptr < '0')
                 throw std::logic_error("Invalid data for calculating remaining instruction size!");

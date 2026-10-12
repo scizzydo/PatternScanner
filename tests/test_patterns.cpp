@@ -2,9 +2,7 @@
 #include <PatternScanner/RuntimePattern.hpp>
 #include <PatternScanner/CompileTimePattern.hpp>
 #include <PatternScanner/XORPattern.hpp>
-#ifdef PATTERNS_ARM64
 #include <PatternScanner/ArmPattern.hpp>
-#endif
 #include "multi_scan.hpp"
 #include <cstdio>
 #include <cstdlib>
@@ -52,10 +50,29 @@ static void edge_cases() {
     // X offset, /r (relative value) and /d (rip-relative deref) on a call: E8 <rel32>
     alignas(8) uint8_t code[16] = { 0x90, 0xE8, 0x10, 0x00, 0x00, 0x00, 0xC3 };
     CHECK("E8 X ? ? ? ? C3"_rtpattern.find<uint8_t*>(code, 16) == code + 2);
-#ifndef PATTERNS_ARM64   // arm64 has no /r, and its /d decodes arm instructions
-    CHECK("E8 X4 ? ? ? ? C3 /r"_rtpattern.find<uintptr_t>(code, 16) == 0x10);
-    CHECK("E8 X4 ? ? ? ? C3 /d"_rtpattern.find<uint8_t*>(code, 16) == code + 6 + 0x10);
-#endif
+    // x86 semantics on any host, as a disassembler plugin scanning x86 code needs (arm64 has no /r)
+    for (auto a : { patterns::arch::x86, patterns::arch::x64 }) {
+        const patterns::RuntimePattern rel("E8 X4 ? ? ? ? C3 /r", a), deref("E8 X4 ? ? ? ? C3 /d", a);
+        CHECK(rel.find<uintptr_t>(code, 16) == 0x10);
+        CHECK(deref.find<uint8_t*>(code, 16) == code + 6 + 0x10);
+        bool is_value = false;
+        CHECK(rel.resolve(rel.match(code, 16), code + 16, &is_value) == reinterpret_cast<void*>(0x10) && is_value);
+        CHECK(deref.resolve(deref.match(code, 16), code + 16, &is_value) == code + 6 + 0x10 && !is_value);
+        CHECK(rel.target() == a);
+    }
+    // arm64 semantics for byte patterns: /d decodes the instruction at X (BL #0x1000), X<len> isn't parsed
+    alignas(4) const uint32_t bl[] = { 0xD503201F, 0x94000400 };
+    const auto bl_bytes = reinterpret_cast<const uint8_t*>(bl);
+    CHECK(patterns::RuntimePattern("1F 20 03 D5 X ? ? ? 94 /d", patterns::arch::arm64).find<const uint8_t*>(bl_bytes, 8) == bl_bytes + 4 + 0x1000);
+    // /a steps by the target's alignment: 8 for x64, 4 for x86 and arm64
+    alignas(8) uint8_t al[24] = {};
+    al[12] = 0xAB;
+    CHECK(patterns::RuntimePattern("AB /a", patterns::arch::x64).find<uint8_t*>(al, 24) == nullptr);
+    CHECK(patterns::RuntimePattern("AB /a", patterns::arch::x86).find<uint8_t*>(al, 24) == al + 12);
+    CHECK(patterns::RuntimePattern("AB /a", patterns::arch::arm64).find<uint8_t*>(al, 24) == al + 12);
+    threw = false;
+    try { patterns::RuntimePattern("E8 X4 ? ? ? ? /r8", patterns::arch::x86); } catch (const std::logic_error&) { threw = true; }
+    CHECK(!threw);   // 8 isn't a size on x86, so it's ignored like any other unknown flag
     puts("  edge cases ok");
 }
 
@@ -136,11 +153,7 @@ static void fuzz(unsigned rounds) {
         const bool align = rng() % 4 == 0;
         MaskPattern mp(p, m, align);
         const auto got = mp.find<uint8_t*>(buf.data() + base, n);
-#ifdef PATTERNS_ARM64
-        constexpr size_t align_step = 4;   // instruction size, not pointer size (see Pattern::align_size_)
-#else
-        constexpr size_t align_step = sizeof(void*);
-#endif
+        const size_t align_step = mp.target() == patterns::arch::x64 ? 8 : 4;   // see Pattern::align_size()
         const auto want = naive(buf.data() + base, n, p.data(), m.data(), len, align ? align_step : 1);
         if (got != want) {
             printf("FAIL fuzz round %u: len=%zu n=%zu base=%zu align=%d\n", r, len, n, base, align);
@@ -167,10 +180,9 @@ static void multi_strategies() {
             if (j >= 4 && j < 8) s += "? ";
             else { snprintf(hex, sizeof hex, "%02X ", mod[off + j]); s += hex; }
         }
-#ifndef PATTERNS_ARM64   // x86-style /d on random bytes; arm64 /d would try to decode them as instructions
         s += k % 2 ? "/d" : "";
-#endif
-        owned.emplace_back(s.c_str());
+        // x86-style /d on random bytes; arm64 /d would try to decode them as instructions
+        owned.emplace_back(s.c_str(), patterns::arch::x64);
     }
     owned.emplace_back("01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");   // absent
     for (auto& p : owned) pats.push_back(&p);
@@ -190,7 +202,6 @@ static void multi_strategies() {
     puts("  multi-pattern strategies agree ok");
 }
 
-#ifdef PATTERNS_ARM64
 static void arm_patterns() {
     constexpr auto adrl = "LDR W?, [X?,#0x18]\n"
                           "X ADRP X?, #?\n"
@@ -203,7 +214,6 @@ static void arm_patterns() {
     CHECK(ret.find<const uint32_t*>(reinterpret_cast<const uint8_t*>(code), sizeof code) == code + 1);
     puts("  arm64 patterns ok");
 }
-#endif
 
 int main(int, char** argv) {
 #ifdef PATTERNS_NO_SIMD
@@ -220,8 +230,6 @@ int main(int, char** argv) {
     no_plaintext_in_binary(argv[0]);
     fuzz(300000);
     multi_strategies();
-#ifdef PATTERNS_ARM64
     arm_patterns();
-#endif
     puts("all tests passed");
 }

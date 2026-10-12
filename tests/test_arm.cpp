@@ -1,7 +1,8 @@
 // ArmPattern tests. Exit code 0 = pass. Build with tests/CMakeLists.txt.
-// The encoder is checked on every platform against encodings produced by clang's assembler. On Apple arm64 the
-// test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
+// The encoder and /d are checked on every platform against encodings produced by clang's assembler. On Apple arm64
+// the test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
 #include <PatternScanner/ArmXORPattern.hpp>
+#include <PatternScanner/RuntimeArmPattern.hpp>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -203,6 +204,24 @@ static void line_formats() {
     puts("  line formats ok");
 }
 
+// RuntimeArmPattern: the same parse as ArmPattern, from text only known at runtime
+static void runtime_patterns() {
+    int n = 0;
+#define CASE(text, ...) { CHECK(same(ARM_PATTERN(text), patterns::RuntimeArmPattern(text))); ++n; }
+    CONCRETE(CASE)
+#undef CASE
+#define CASE(ptext, ...) { CHECK(same(ARM_PATTERN(ptext), patterns::RuntimeArmPattern(ptext))); ++n; }
+    WILDCARD(CASE)
+#undef CASE
+    constexpr auto canon = ARM_PATTERN("NOP\nX LDR W8, [X8,#0x18]\nRET\n/d");
+    CHECK(same(canon, patterns::RuntimeArmPattern("nop\r\n  x ldr    w8, [x8, #0x18]\n\nret\n/d")));
+    CHECK(same(ARM_PATTERN("NOP\nRET\n/a"), patterns::RuntimeArmPattern("NOP\nRET\n/a")));
+    const char unterminated[] = { 'N', 'O', 'P', '\n', 'R', 'E', 'T', 'X' };   // the length bounds the text
+    CHECK(same(ARM_PATTERN("NOP\nRET"), patterns::RuntimeArmPattern(unterminated, 7)));
+    CHECK(patterns::RuntimeArmPattern("").length() == 0 && patterns::RuntimeArmPattern("/d").length() == 0);
+    printf("  runtime patterns ok (%d)\n", n);
+}
+
 // ArmXORPattern: the same encoding and results as ArmPattern, different stored words per definition site
 static void xor_patterns() {
     constexpr auto plain = ARM_PATTERN("NOP\nX LDR W8, [X8,#0x18]\nRET\n/d");
@@ -253,7 +272,6 @@ static void xor_no_plaintext_in_binary(const char* exe) {
     puts("  xor: no plaintext in binary ok");
 }
 
-#ifdef PATTERNS_ARM64
 // /d on hand-built code: ADRP beyond 2GB, and ADRP followers bounded by the scanned size
 static void deref_synthetic() {
     static const uint32_t far_code[] = { 0x528EEEE9, 0x90480000, 0x91004000, 0 };   // MOVZ W9, #0x7777; ADRP X0, #0x90000000; ADD X0, X0, #0x10
@@ -275,9 +293,18 @@ static void deref_synthetic() {
     CHECK(adrl.find<uintptr_t>(bytes, sizeof chain) == page + 0x1000 + 0x10 + 8);
     CHECK(adrl.find<uintptr_t>(bytes, 12) == page + 0x1000 + 0x10);   // the LDR is past the end: not read
     CHECK(adrl.find<uintptr_t>(bytes, 8) == page + 0x1000);           // ADRP is the last word scanned
+    const patterns::RuntimeArmPattern rt("MOVZ W9, #0x7777\nX ADRP X?, #?\n/d");
+    bool is_value = true;
+    CHECK(rt.resolve(rt.match(bytes, sizeof chain), bytes + sizeof chain, &is_value) == reinterpret_cast<void*>(page + 0x1000 + 0x10 + 8));
+    CHECK(!is_value);
+
+    // Values rather than addresses: the immediate of MOVZ, the offset of a lone LDR
+    const auto movz = ARM_PATTERN("X MOVZ W9, #0x7777\n/d");
+    CHECK(movz.resolve(movz.match(bytes, sizeof chain), bytes + sizeof chain, &is_value) == reinterpret_cast<void*>(0x7777) && is_value);
+    const auto ldr = ARM_PATTERN("ADD X1, X0, #0x10\nX LDR X2, [X1,#?]\n/d");
+    CHECK(ldr.resolve(ldr.match(bytes, sizeof chain), bytes + sizeof chain, &is_value) == reinterpret_cast<void*>(8) && is_value);
     puts("  /d on synthetic code ok");
 }
-#endif
 
 #if defined(PATTERNS_ARM64) && defined(__APPLE__)
 #define SYM(x) "_" x
@@ -340,11 +367,10 @@ int main(int, char** argv) {
     concrete();
     wildcards();
     line_formats();
+    runtime_patterns();
     xor_patterns();
     xor_no_plaintext_in_binary(argv[0]);
-#ifdef PATTERNS_ARM64
     deref_synthetic();
-#endif
 #if defined(PATTERNS_ARM64) && defined(__APPLE__)
     assembler_agrees();
     deref_relocated();

@@ -18,6 +18,7 @@ namespace patterns {
         {
             // Encoded by ArmPattern here at compile time; only the XOR'd words make it into the binary
             const ArmPattern<nstr, narr> plain(p);
+            arch_ = arch::arm64;
             length_ = plain.length();
             offset_ = plain.offset();
             // Flags parsed the same way ArmPattern does
@@ -71,10 +72,12 @@ namespace patterns {
     };
 }
 
+#ifdef PATTERNS_LITERALS
 template<patterns::detail::const_string str>
 PATTERNS_CONSTEVAL auto operator""_armxorpattern() {
     return patterns::ArmXORPattern<str.length, patterns::detail::total_instructions(str.data, str.size)>(str.data, str.seed);
 }
+#endif
 
 #ifndef ARM_XOR_PATTERN
 #define ARM_XOR_PATTERN(x) ([] { constexpr auto p = patterns::ArmXORPattern<sizeof(x)-1, patterns::detail::total_instructions(x)>(x, patterns::detail::site_seed(__FILE__, __LINE__, __COUNTER__)); return p; }())
