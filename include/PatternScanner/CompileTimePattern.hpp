@@ -6,21 +6,7 @@ namespace patterns {
 
     namespace detail {
         constexpr size_t pattern_length(const char* s, size_t nstr) {
-            size_t res = 0;
-            for (size_t i = 0; i < nstr - 1; i += 2) {
-                auto c = s[i];
-                if (c == 'X' || c == 'x') {
-                    while (i + 1 < nstr && s[i + 1] != ' ')
-                        ++i;
-                    continue;
-                }
-                else if (c == '/')
-                    break;
-                else if (c != ' ')
-                    ++res;
-                else --i;
-            }
-            return res;
+            return parse_bytes(s, nstr - 1, [](size_t, const char*) {}, [](size_t, const char*) {}, [](const char*) {});
         }
 
         template<size_t nstr>
@@ -38,37 +24,7 @@ namespace patterns {
             m_pattern{}, m_mask{}
         {
             length_ = narr;
-            auto n = 0;
-            for (size_t i = 0; i < nstr; i += 2) {
-                auto ptr = &p[i];
-                if (p[i] == '?') {
-                    m_pattern[n] = 0;
-                    m_mask[n] = 0;
-                    ++n;
-                }
-                // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x') {
-                    offset_ = n;
-                    if (i + 1 < nstr && p[i + 1] != ' ') {
-                        if (arch_ != arch::arm64)
-                            insn_len_ = get_inst_len_opt(&p[i + 1]);
-                        while (i + 1 < nstr && p[i + 1] != ' ')
-                            ++i;
-                    }
-                }
-                // Break from parsing the pattern, since / at the end starts the flags
-                else if (*ptr == '/') {
-                    ++ptr;
-                    handle_options(ptr);
-                    break;
-                }
-                else if (*ptr != ' ') {
-                    m_pattern[n] = value(ptr);
-                    m_mask[n] = 0xFF;
-                    ++n;
-                }
-                else --i;
-            }
+            parse(p, nstr, [&](size_t n, uint8_t byte, uint8_t mask) { m_pattern[n] = byte; m_mask[n] = mask; });
         }
         virtual const uint8_t* pattern() const override {
             return m_pattern.data();

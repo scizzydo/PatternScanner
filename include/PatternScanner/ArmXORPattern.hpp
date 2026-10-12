@@ -16,14 +16,8 @@ namespace patterns {
         PATTERNS_CONSTEVAL ArmXORPattern(const char* p, uint32_t seed) :
             m_instructions{}, m_masks{}, m_keys{}, m_mask_keys{}
         {
-            // Encoded by ArmPattern here at compile time; only the XOR'd words make it into the binary
-            const ArmPattern<nstr, narr> plain(p);
             arch_ = arch::arm64;
-            length_ = plain.length();
-            offset_ = plain.offset();
-            // Flags parsed the same way ArmPattern does
-            size_t options = detail::skip_past(p, 0, '/');
-            if (p[options - 1] == '/') handle_options(&p[options]);
+            length_ = narr * 4;
             align_ = true;
             for (size_t j = 0; j < narr; ++j) {
                 for (uint32_t b = 0; b < 4; ++b) {
@@ -31,9 +25,16 @@ namespace patterns {
                     m_keys[j] |= static_cast<uint32_t>(detail::generate_key(at)) << (b * 8);
                     m_mask_keys[j] |= static_cast<uint32_t>(detail::generate_key(at, detail::mask_keys)) << (b * 8);
                 }
-                m_instructions[j] = plain.m_instructions[j] ^ m_keys[j];
-                m_masks[j] = plain.m_masks[j] ^ m_mask_keys[j];
             }
+            // Encoded here at compile time; only the XOR'd words make it into the binary
+            detail::parse_arm(p, nstr,
+                [&](size_t i, const char* instruction) {
+                    const auto encoded = detail::a64_encode_instruction(instruction);
+                    m_instructions[i] = encoded.pattern ^ m_keys[i];
+                    m_masks[i] = encoded.mask ^ m_mask_keys[i];
+                },
+                [&](size_t i) { offset_ = static_cast<uint32_t>(i * 4); },
+                [&](const char* flags) { handle_options(flags); });
         }
         virtual const uint8_t* pattern() const override {
             return reinterpret_cast<const uint8_t*>(m_instructions.data());

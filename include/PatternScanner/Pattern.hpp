@@ -122,6 +122,32 @@ namespace patterns {
                 if ((at[j] ^ pat[j]) & msk[j]) return false;
             return true;
         }
+
+        // The byte pattern syntax ("48 8B ? X4 ? ? ? ? /d"). Calls byte(index, text) for each byte (text at its two hex
+        // digits or '?'), x(index, len_text) for the X marker (len_text at the digits after X, or nullptr) and
+        // flags(text) for the text after '/'. Returns the number of bytes
+        template <class Byte, class X, class Flags>
+        constexpr size_t parse_bytes(const char* p, size_t len, Byte&& byte, X&& x, Flags&& flags) {
+            size_t n = 0;
+            for (size_t i = 0; i < len; i += 2) {
+                const char c = p[i];
+                if (c == 'X' || c == 'x') {
+                    x(n, i + 1 < len && p[i + 1] != ' ' ? &p[i + 1] : nullptr);
+                    while (i + 1 < len && p[i + 1] != ' ')
+                        ++i;
+                }
+                // The flags end the pattern
+                else if (c == '/') {
+                    flags(&p[i + 1]);
+                    break;
+                }
+                else if (c != ' ')
+                    byte(n++, &p[i]);
+                else --i;
+            }
+            return n;
+        }
+
         template<typename T>
         T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
             constexpr size_t int_width = sizeof(int32_t) * 8;
@@ -378,6 +404,22 @@ namespace patterns {
             return pattern()[idx];
         }
     protected:
+        // Parses a byte pattern: sets the X offset, X<len> and flags, and calls emit(index, byte, mask) for each byte.
+        // Set arch_ first. Returns the number of bytes
+        template <class Emit>
+        constexpr size_t parse(const char* p, size_t len, Emit&& emit) {
+            return detail::parse_bytes(p, len,
+                [&](size_t n, const char* c) {
+                    if (*c == '?') emit(n, uint8_t(0), uint8_t(0));
+                    else emit(n, value(c), uint8_t(0xFF));
+                },
+                [&](size_t n, const char* len_text) {
+                    offset_ = static_cast<uint32_t>(n);
+                    if (len_text && arch_ != arch::arm64)
+                        insn_len_ = get_inst_len_opt(len_text);
+                },
+                [&](const char* flags) { handle_options(flags); });
+        }
         // First match of pat/msk in [bytes, bytes + size). Two anchor bytes are checked first
         // (16 positions at a time with SIMD), and only positions passing both get a full compare.
         const uint8_t* scan(const uint8_t* bytes, size_t size, const uint8_t* pat, const uint8_t* msk) const {

@@ -30,37 +30,10 @@ namespace patterns {
                 mask_keys_[j] = detail::generate_key(seed + static_cast<uint32_t>(j), detail::mask_keys);
             }
             length_ = narr;
-            auto n = 0;
-            for (size_t i = 0; i < nstr; i += 2) {
-                auto ptr = &p[i];
-                if (*ptr == '?') {
-                    pattern_[n] = 0 ^ keys_[n];
-                    mask_[n] = 0 ^ mask_keys_[n];
-                    ++n;
-                }
-                // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x') {
-                    offset_ = n;
-                    if (i + 1 < nstr && p[i + 1] != ' ') {
-                        if (arch_ != arch::arm64)
-                            insn_len_ = get_inst_len_opt(&p[i + 1]);
-                        while (i + 1 < nstr && p[i + 1] != ' ')
-                            ++i;
-                    }
-                }
-                // Break from parsing the pattern, since / at the end starts the flags
-                else if (*ptr == '/') {
-                    ++ptr;
-                    handle_options(ptr);
-                    break;
-                }
-                else if (*ptr != ' ') {
-                    pattern_[n] = value(ptr) ^ keys_[n];
-                    mask_[n] = 0xFF ^ mask_keys_[n];
-                    ++n;
-                }
-                else --i;
-            }
+            parse(p, nstr, [&](size_t n, uint8_t byte, uint8_t mask) {
+                pattern_[n] = byte ^ keys_[n];
+                mask_[n] = mask ^ mask_keys_[n];
+            });
         }
         virtual const uint8_t* pattern() const override {
             return pattern_.data();

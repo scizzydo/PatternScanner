@@ -652,16 +652,28 @@ namespace patterns {
 
         constexpr size_t max_line = 128;
 
-        // Non-empty lines up to the options line ("/d" etc.); must agree with the ArmPattern constructor
-        constexpr size_t total_instructions(const char* str, size_t nstr) {
+        // The ArmPattern syntax: one instruction per line, X before the one to resolve, flags after '/'. Calls
+        // line(index, instruction) for each instruction (trimmed and uppercased), x(index) for the X line and
+        // flags(text) for the text after '/'. Reads up to n chars or a terminator. Returns the number of instructions
+        template <class Line, class X, class Flags>
+        constexpr size_t parse_arm(const char* p, size_t n, Line&& line, X&& x, Flags&& flags) {
+            const size_t options = skip_past(p, 0, '/');
+            if (options && p[options - 1] == '/') flags(&p[options]);
             size_t count = 0;
-            for (size_t i = 0; i < nstr - 1 && str[i];) {
-                char line[max_line] = {};
-                i = read_line(str, i, line);
-                if (line[0] == '/') break;
-                if (line[0]) ++count;
+            for (size_t i = 0; i < n && p[i];) {
+                char text[max_line] = {};
+                i = read_line(p, i, text);
+                if (text[0] == '/') break;
+                if (!text[0]) continue;
+                size_t start = 0;
+                if (text[0] == 'X') { x(count); start = skip_whitespace(text, 1); }
+                line(count++, &text[start]);
             }
             return count;
+        }
+
+        constexpr size_t total_instructions(const char* str, size_t nstr) {
+            return parse_arm(str, nstr - 1, [](size_t, const char*) {}, [](size_t) {}, [](const char*) {});
         }
 
         template <size_t N>
@@ -671,36 +683,24 @@ namespace patterns {
     }
 
     template <size_t nstr, size_t narr>
-    class ArmXORPattern;
-
-    template <size_t nstr, size_t narr>
     class ArmPattern final : public Pattern {
         std::array<uint32_t, narr> m_instructions{};
         std::array<uint32_t, narr> m_masks{};
-        // Builds from an ArmPattern at compile time, then XORs the instructions
-        friend class ArmXORPattern<nstr, narr>;
     public:
         PATTERNS_CONSTEVAL ArmPattern(const char* p) :
             m_instructions{}, m_masks{}
         {
             arch_ = arch::arm64;
             length_ = narr * 4;
-            uint32_t idx = 0;
-            // Find the options
-            size_t options = detail::skip_past(p, 0, '/');
-            if (p[options - 1] == '/') handle_options(&p[options]);
             align_ = true;
-            for (size_t i = 0; i < nstr && p[i] && idx < narr;) {
-                char line[detail::max_line] = {};
-                i = detail::read_line(p, i, line);
-                if (line[0] == '/') break;
-                if (!line[0]) continue;
-                size_t start = 0;
-                if (line[0] == 'X') { offset_ = idx * 4; start = detail::skip_whitespace(line, 1); }
-                auto encoded = detail::a64_encode_instruction(&line[start]);
-                m_instructions[idx] = encoded.pattern;
-                m_masks[idx++] = encoded.mask;
-            }
+            detail::parse_arm(p, nstr,
+                [&](size_t i, const char* instruction) {
+                    const auto encoded = detail::a64_encode_instruction(instruction);
+                    m_instructions[i] = encoded.pattern;
+                    m_masks[i] = encoded.mask;
+                },
+                [&](size_t i) { offset_ = static_cast<uint32_t>(i * 4); },
+                [&](const char* flags) { handle_options(flags); });
         }
         virtual const uint8_t* pattern() const override {
             return reinterpret_cast<const uint8_t*>(m_instructions.data());

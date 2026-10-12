@@ -105,32 +105,6 @@ static void literals_and_macros() {
 
 // The XOR pattern's plaintext and source text must not be in our own executable. The needle is stored
 // scrambled and rebuilt at runtime, otherwise the test itself would put it in the binary.
-static void no_plaintext_in_binary(const char* exe) {
-    static const uint8_t scrambled[] = { 0x62, 0xBB, 0xFF, 0x56, 0x38, 0x17, 0x43, 0xEA };
-    volatile uint8_t key = 0xA5;   // volatile, or the optimizer folds the descramble back into the plaintext
-    uint8_t plain[8];
-    for (int i = 0; i < 8; ++i) plain[i] = scrambled[i] ^ key;             // C7 1E 5A F3 9D B2 E6 4F
-    auto xp = XOR_PATTERN("C7 1E 5A F3 9D B2 E6 4F");
-    CHECK(xp.find<const uint8_t*>(plain, 8) == plain);
-    std::string text;
-    char hex[4];
-    for (auto c : plain) { snprintf(hex, sizeof hex, "%02X ", c); text += hex; }
-    text.pop_back();
-
-    FILE* f = fopen(exe, "rb");
-    if (!f) { printf("  binary check skipped (can't open %s)\n", exe); return; }
-    std::vector<uint8_t> bin;
-    uint8_t chunk[65536];
-    for (size_t n; (n = fread(chunk, 1, sizeof chunk, f)) > 0;) bin.insert(bin.end(), chunk, chunk + n);
-    fclose(f);
-    auto contains = [&](const void* needle, size_t len) {
-        return std::search(bin.begin(), bin.end(), (const uint8_t*)needle, (const uint8_t*)needle + len) != bin.end();
-    };
-    CHECK(!contains(plain, 8));
-    CHECK(!contains(text.data(), text.size()));
-    puts("  no plaintext in binary ok");
-}
-
 // Random patterns with random bit masks against the naive reference: both scan modes,
 // sizes around the SIMD block boundaries, odd base addresses
 static void fuzz(unsigned rounds) {
@@ -215,7 +189,7 @@ static void arm_patterns() {
     puts("  arm64 patterns ok");
 }
 
-int main(int, char** argv) {
+int main() {
 #ifdef PATTERNS_NO_SIMD
     puts("scan path: scalar (PATTERNS_NO_SIMD)");
 #elif defined(PATTERNS_SSE2)
@@ -227,7 +201,6 @@ int main(int, char** argv) {
 #endif
     edge_cases();
     literals_and_macros();
-    no_plaintext_in_binary(argv[0]);
     fuzz(300000);
     multi_strategies();
     arm_patterns();

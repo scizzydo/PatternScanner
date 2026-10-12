@@ -13,38 +13,10 @@ namespace patterns {
         // target: the architecture of the code being scanned, for /d /r, X<len> and /a (see patterns::arch)
         RuntimePattern(const char* p, size_t len, arch target = host_arch) {
             arch_ = target;
-            int n = 0;
-            for (size_t i = 0; i < len; i += 2) {
-                auto ptr = &p[i];
-                if (*ptr == '?') {
-                    m_pattern.push_back(0);
-                    m_mask.push_back(0);
-                    ++n;
-                }
-                // Capture where we have our offset marker 'X' at
-                else if (*ptr == 'X' || *ptr == 'x') {
-                    offset_ = n;
-                    if (i + 1 < len && p[i + 1] != ' ') {
-                        if (arch_ != arch::arm64)
-                            insn_len_ = get_inst_len_opt(&p[i + 1]);
-                        while (i + 1 < len && p[i + 1] != ' ')
-                            ++i;
-                    }
-                }
-                // Break from parsing the pattern, since / at the end starts the flags
-                else if (*ptr == '/') {
-                    ++ptr;
-                    handle_options(ptr);
-                    break;
-                }
-                else if (*ptr != ' ') {
-                    m_pattern.push_back(value(ptr));
-                    m_mask.push_back(0xFF);
-                    ++n;
-                }
-                else i--;
-            }
-            length_ = n;
+            length_ = static_cast<uint32_t>(parse(p, len, [&](size_t, uint8_t byte, uint8_t mask) {
+                m_pattern.push_back(byte);
+                m_mask.push_back(mask);
+            }));
         }
         RuntimePattern(const char* p, arch target = host_arch) :
             RuntimePattern(p, strlen(p), target)

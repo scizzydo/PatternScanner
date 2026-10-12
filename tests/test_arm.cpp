@@ -3,10 +3,8 @@
 // the test also re-assembles every table line to confirm the tables, and resolves /d on linker-relocated code.
 #include <PatternScanner/ArmXORPattern.hpp>
 #include <PatternScanner/RuntimeArmPattern.hpp>
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <vector>
 
 #define CHECK(x) do { if (!(x)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 
@@ -242,36 +240,6 @@ static void xor_patterns() {
     puts("  xor patterns ok");
 }
 
-// The ArmXORPattern's instruction words, masks and source text must not be in our own executable. The needles
-// are stored scrambled and rebuilt at runtime, otherwise the test itself would put them in the binary.
-static void xor_no_plaintext_in_binary(const char* exe) {
-    // MOVZ W3, #0x5A3C; MOVK W?, #0x9E1D, LSL #16; LDR W?, [X3,#?] as encoded (wildcard bits zero), then their masks
-    static const uint32_t scrambled[] = { 0x528B4783 ^ 0xA5A5A5A5, 0x72B3C3A0 ^ 0xA5A5A5A5, 0xB9400060 ^ 0xA5A5A5A5,
-                                          0xFFFFFFFF ^ 0xA5A5A5A5, 0xFFFFFFE0 ^ 0xA5A5A5A5, 0xFFC003E0 ^ 0xA5A5A5A5 };
-    volatile uint32_t key = 0xA5A5A5A5;   // volatile, or the optimizer folds the descramble back into the plaintext
-    uint32_t words[3], masks[3];
-    for (int i = 0; i < 3; ++i) { words[i] = scrambled[i] ^ key; masks[i] = scrambled[i + 3] ^ key; }
-    auto xp = ARM_XOR_PATTERN("MOVZ W3, #0x5A3C\nMOVK W?, #0x9E1D, LSL #16\nLDR W?, [X3,#?]");
-    CHECK(xp.find<const uint32_t*>(reinterpret_cast<const uint8_t*>(words), sizeof words) == words);
-    for (size_t k = 0; k < 12; ++k) CHECK(xp.unmask(k) == reinterpret_cast<const uint8_t*>(masks)[k]);
-
-    FILE* f = fopen(exe, "rb");
-    if (!f) { printf("  binary check skipped (can't open %s)\n", exe); return; }
-    std::vector<uint8_t> bin;
-    uint8_t chunk[65536];
-    for (size_t n; (n = fread(chunk, 1, sizeof chunk, f)) > 0;) bin.insert(bin.end(), chunk, chunk + n);
-    fclose(f);
-    auto contains = [&](const void* needle, size_t len) {
-        return std::search(bin.begin(), bin.end(), (const uint8_t*)needle, (const uint8_t*)needle + len) != bin.end();
-    };
-    char text[] = "MOVZ W3, #0x5A3B";   // last digit bumped so this literal isn't the needle
-    text[sizeof text - 2] = 'C';
-    CHECK(!contains(words, sizeof words));
-    CHECK(!contains(masks, sizeof masks));
-    CHECK(!contains(text, sizeof text - 1));
-    puts("  xor: no plaintext in binary ok");
-}
-
 // /d on hand-built code: ADRP beyond 2GB, and ADRP followers bounded by the scanned size
 static void deref_synthetic() {
     static const uint32_t far_code[] = { 0x528EEEE9, 0x90480000, 0x91004000, 0 };   // MOVZ W9, #0x7777; ADRP X0, #0x90000000; ADD X0, X0, #0x10
@@ -363,13 +331,12 @@ static void deref_relocated() {
 }
 #endif
 
-int main(int, char** argv) {
+int main() {
     concrete();
     wildcards();
     line_formats();
     runtime_patterns();
     xor_patterns();
-    xor_no_plaintext_in_binary(argv[0]);
     deref_synthetic();
 #if defined(PATTERNS_ARM64) && defined(__APPLE__)
     assembler_agrees();

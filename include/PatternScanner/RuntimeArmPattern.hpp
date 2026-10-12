@@ -13,25 +13,18 @@ namespace patterns {
     public:
         RuntimeArmPattern(const char* text, size_t len) {
             arch_ = arch::arm64;
+            align_ = true;
             // The parser reads up to a terminator, so work on a terminated copy
             const std::string s(text, len);
-            const char* p = s.c_str();
-            // Same parsing as the ArmPattern constructor
-            size_t options = detail::skip_past(p, 0, '/');
-            if (options && p[options - 1] == '/') handle_options(&p[options]);
-            align_ = true;
-            for (size_t i = 0; p[i];) {
-                char line[detail::max_line] = {};
-                i = detail::read_line(p, i, line);
-                if (line[0] == '/') break;
-                if (!line[0]) continue;
-                size_t start = 0;
-                if (line[0] == 'X') { offset_ = static_cast<uint32_t>(m_instructions.size() * 4); start = detail::skip_whitespace(line, 1); }
-                auto encoded = detail::a64_encode_instruction(&line[start]);
-                m_instructions.push_back(encoded.pattern);
-                m_masks.push_back(encoded.mask);
-            }
-            length_ = static_cast<uint32_t>(m_instructions.size() * 4);
+            const auto count = detail::parse_arm(s.c_str(), len,
+                [&](size_t, const char* instruction) {
+                    const auto encoded = detail::a64_encode_instruction(instruction);
+                    m_instructions.push_back(encoded.pattern);
+                    m_masks.push_back(encoded.mask);
+                },
+                [&](size_t i) { offset_ = static_cast<uint32_t>(i * 4); },
+                [&](const char* flags) { handle_options(flags); });
+            length_ = static_cast<uint32_t>(count * 4);
         }
         explicit RuntimeArmPattern(const char* text) :
             RuntimeArmPattern(text, strlen(text))
