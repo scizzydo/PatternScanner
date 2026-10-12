@@ -195,16 +195,18 @@ namespace patterns {
         }
 
         // https://developer.arm.com/documentation/ddi0602/2023-12/Index-by-Encoding/Loads-and-Stores
-        // Single general-purpose register loads/stores with an immediate offset (LDR/STR/LDRB/LDRH/LDRSW... and the
-        // LDUR/STUR forms). *offset is signed; *post_index is set for [Rn],#imm, which accesses Rn itself
+        // Single-register loads/stores with an immediate offset (LDR/STR/LDRB/LDRH/LDRSW... and the LDUR/STUR forms,
+        // general-purpose or floating-point/SIMD). *offset is signed; *post_index is set for [Rn],#imm, which accesses
+        // Rn itself
         inline bool a64_decode_load_store(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset, bool* post_index = nullptr) {
-            // size 111 0 01 opc imm12 Rn Rt: unsigned offset, scaled by the access size
-            if (decode_masked_match(insn, 0x3F000000, 0x39000000)) {
-                *offset = static_cast<int64_t>(extract_bitfield<uint32_t>(insn, 12, 10)) << (insn >> 30);
+            // size 111 V 01 opc imm12 Rn Rt: unsigned offset, scaled by the access size (a Q register is size 00, opc 1x)
+            if (decode_masked_match(insn, 0x3B000000, 0x39000000)) {
+                const unsigned scale = (insn >> 30) | ((insn >> 26) & (insn >> 23) & 1) << 2;
+                *offset = static_cast<int64_t>(extract_bitfield<uint32_t>(insn, 12, 10)) << scale;
                 if (post_index) *post_index = false;
             }
-            // size 111 0 00 opc 0 imm9 mode Rn Rt: unscaled (00), post-index (01), unprivileged (10), pre-index (11)
-            else if (decode_masked_match(insn, 0x3F200000, 0x38000000)) {
+            // size 111 V 00 opc 0 imm9 mode Rn Rt: unscaled (00), post-index (01), unprivileged (10), pre-index (11)
+            else if (decode_masked_match(insn, 0x3B200000, 0x38000000)) {
                 *offset = extract_bitfield<int32_t>(insn, 9, 12);
                 if (post_index) *post_index = ((insn >> 10) & 3) == 1;
             }
@@ -214,11 +216,16 @@ namespace patterns {
             return true;
         }
 
-        // B.cond, CBZ/CBNZ and LDR (literal): a PC-relative imm19
-        inline bool a64_decode_imm19(uint32_t insn, int64_t* offset) {
+        // B.cond, CBZ/CBNZ and LDR (literal, general-purpose or floating-point/SIMD): a PC-relative imm19.
+        // TBZ/TBNZ: imm14
+        inline bool a64_decode_branch_imm(uint32_t insn, int64_t* offset) {
             if (decode_masked_match(insn, 0xFF000010, 0x54000000) || decode_masked_match(insn, 0x7E000000, 0x34000000)
-                || decode_masked_match(insn, 0x3F000000, 0x18000000)) {
+                || decode_masked_match(insn, 0x3B000000, 0x18000000)) {
                 *offset = static_cast<int64_t>(extract_bitfield<int32_t>(insn, 19, 5)) * 4;
+                return true;
+            }
+            if (decode_masked_match(insn, 0x7E000000, 0x36000000)) {
+                *offset = static_cast<int64_t>(extract_bitfield<int32_t>(insn, 14, 5)) * 4;
                 return true;
             }
             return false;
@@ -509,7 +516,8 @@ namespace patterns {
                                     if (!post_index) saved_offset += offset;
                                     break;
                                 }
-                                if (rt == saved_rd) break;
+                                // Only a load into a general-purpose register (V clear, opc not 00) overwrites it
+                                if (rt == saved_rd && !(*curr_insn >> 26 & 1) && (*curr_insn >> 22 & 3)) break;
                             }
                             else if (detail::a64_decode_adr(*curr_insn, nullptr, &rd, &offset)
                                     || detail::a64_decode_movz(*curr_insn, nullptr, &rd, &offset)) {
@@ -522,7 +530,7 @@ namespace patterns {
                     const auto from_addr = is_adrp ? reinterpret_cast<uintptr_t>(insn) & ~0xfff : reinterpret_cast<uintptr_t>(insn);
                     return reinterpret_cast<void*>(from_addr + saved_offset);
                 }
-                else if (detail::a64_decode_imm19(*insn, &offset)) {
+                else if (detail::a64_decode_branch_imm(*insn, &offset)) {
                     return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(insn) + offset);
                 }
                 else if (detail::a64_decode_load_store(*insn, nullptr, nullptr, &offset)) {

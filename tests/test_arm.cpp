@@ -160,7 +160,265 @@
     X("ADD W0, WSP, W1",             0x0B2143E0) \
     X("LDP X29, X30, [SP]",          0xA9407BFD) \
     X("STP X29, X30, [SP]",          0xA9007BFD) \
-    X("ADR X0, #-1",                 0x70FFFFE0)
+    X("ADR X0, #-1",                 0x70FFFFE0) \
+    X("TBZ W0, #3, #8",                0x36180040) \
+    X("TBNZ X1, #40, #-8",             0xB747FFC1) \
+    X("TBZ X5, #3, #0x100",            0x36180805) \
+    X("TBNZ W30, #31, #-0x8000",       0x37FC001E) \
+    X("SVC #0x80",                     0xD4001001) \
+    X("SVC #0",                        0xD4000001) \
+    X("BRK #1",                        0xD4200020) \
+    X("BRK #0xF000",                   0xD43E0000) \
+    X("HLT #0",                        0xD4400000) \
+    X("UDF #0",                        0x00000000) \
+    X("UDF #0x1234",                   0x00001234) \
+    X("HVC #1",                        0xD4000022) \
+    X("BTI",                           0xD503241F) \
+    X("BTI C",                         0xD503245F) \
+    X("BTI J",                         0xD503249F) \
+    X("BTI JC",                        0xD50324DF) \
+    X("BRAA X16, X17",                 0xD71F0A11) \
+    X("BRAB X8, SP",                   0xD71F0D1F) \
+    X("BLRAA X8, X9",                  0xD73F0909) \
+    X("BLRAB X1, X2",                  0xD73F0C22) \
+    X("BRAAZ X16",                     0xD61F0A1F) \
+    X("BRABZ X3",                      0xD61F0C7F) \
+    X("BLRAAZ X8",                     0xD63F091F) \
+    X("BLRABZ X8",                     0xD63F0D1F) \
+    X("LDRAA X0, [X1,#8]",             0xF8201420) \
+    X("LDRAB X0, [X1,#-8]!",           0xF8FFFC20) \
+    X("LDRAA X16, [X17]",              0xF8200630) \
+    X("LDRAA X1, [SP,#4088]",          0xF83FF7E1) \
+    X("LDRAB X1, [X2,#-4096]",         0xF8E00441) \
+    X("PACIA X0, X1",                  0xDAC10020) \
+    X("PACIB X16, SP",                 0xDAC107F0) \
+    X("PACDA X3, X4",                  0xDAC10883) \
+    X("PACDB X3, X4",                  0xDAC10C83) \
+    X("AUTIA X16, X17",                0xDAC11230) \
+    X("AUTIB X5, SP",                  0xDAC117E5) \
+    X("AUTDA X1, X2",                  0xDAC11841) \
+    X("AUTDB X1, X2",                  0xDAC11C41) \
+    X("PACIZA X0",                     0xDAC123E0) \
+    X("PACIZB X1",                     0xDAC127E1) \
+    X("PACDZA X2",                     0xDAC12BE2) \
+    X("PACDZB X3",                     0xDAC12FE3) \
+    X("AUTIZA X4",                     0xDAC133E4) \
+    X("AUTIZB X5",                     0xDAC137E5) \
+    X("AUTDZA X6",                     0xDAC13BE6) \
+    X("AUTDZB X7",                     0xDAC13FE7) \
+    X("XPACI X0",                      0xDAC143E0) \
+    X("XPACD X1",                      0xDAC147E1) \
+    X("XPACLRI",                       0xD50320FF) \
+    X("PACGA X0, X1, X2",              0x9AC23020) \
+    X("PACIAZ",                        0xD503231F) \
+    X("PACIBZ",                        0xD503235F) \
+    X("AUTIAZ",                        0xD503239F) \
+    X("AUTIBZ",                        0xD50323DF) \
+    X("PACIA1716",                     0xD503211F) \
+    X("PACIB1716",                     0xD503215F) \
+    X("AUTIA1716",                     0xD503219F) \
+    X("AUTIB1716",                     0xD50321DF) \
+    X("LDRSB W0, [X1,#1]",             0x39C00420) \
+    X("LDRSB X0, [X1,#1]",             0x39800420) \
+    X("LDRSH W0, [X1,#2]",             0x79C00420) \
+    X("LDRSH X0, [X1,#0x7E]",          0x7980FC20) \
+    X("LDRSB W0, [X1,#-1]",            0x38DFF020) \
+    X("LDRSH X2, [X3,#2]!",            0x78802C62) \
+    X("LDRSB W2, [X3],#1",             0x38C01462) \
+    X("LDRSH W4, [X5,X6,LSL#1]",       0x78E678A4) \
+    X("LDURSB W0, [X1,#-1]",           0x38DFF020) \
+    X("LDURSH X0, [X1,#3]",            0x78803020) \
+    X("LDPSW X0, X1, [X2,#8]",         0x69410440) \
+    X("LDPSW X0, X1, [SP,#-8]!",       0x69FF07E0) \
+    X("LDPSW X0, X1, [X2],#16",        0x68C20440) \
+    X("LDNP X0, X1, [X2,#16]",         0xA8410440) \
+    X("STNP W0, W1, [X2,#-8]",         0x283F0440) \
+    X("LDNP Q0, Q1, [X2,#32]",         0xAC410440) \
+    X("STNP D0, D1, [SP]",             0x6C0007E0) \
+    X("LDXR X0, [X1]",                 0xC85F7C20) \
+    X("LDXR W0, [X1]",                 0x885F7C20) \
+    X("STXR W2, X0, [X1]",             0xC8027C20) \
+    X("LDAXR W0, [X1]",                0x885FFC20) \
+    X("STLXR W2, W0, [X1]",            0x8802FC20) \
+    X("LDAR X0, [X1]",                 0xC8DFFC20) \
+    X("STLR W0, [X1]",                 0x889FFC20) \
+    X("LDAPR X0, [X1]",                0xF8BFC020) \
+    X("LDAXRB W0, [X1]",               0x085FFC20) \
+    X("LDXRH W0, [X1]",                0x485F7C20) \
+    X("LDARB W3, [SP]",                0x08DFFFE3) \
+    X("LDARH W3, [X4]",                0x48DFFC83) \
+    X("STLRB W3, [X4]",                0x089FFC83) \
+    X("STLRH W3, [X4]",                0x489FFC83) \
+    X("LDAPRB W0, [X1]",               0x38BFC020) \
+    X("LDAPRH W0, [X1]",               0x78BFC020) \
+    X("STXRB W2, W0, [X1]",            0x08027C20) \
+    X("STXRH W2, W0, [X1]",            0x48027C20) \
+    X("STLXRB W2, W0, [X1]",           0x0802FC20) \
+    X("STLXRH W2, W0, [X1]",           0x4802FC20) \
+    X("LDXP X0, X1, [X2]",             0xC87F0440) \
+    X("LDAXP W0, W1, [X2]",            0x887F8440) \
+    X("STXP W3, X0, X1, [X2]",         0xC8230440) \
+    X("STLXP W3, W0, W1, [X2]",        0x88238440) \
+    X("CAS X0, X1, [X2]",              0xC8A07C41) \
+    X("CASA W0, W1, [X2]",             0x88E07C41) \
+    X("CASL X0, X1, [SP]",             0xC8A0FFE1) \
+    X("CASAL W0, W1, [X2]",            0x88E0FC41) \
+    X("CASB W0, W1, [X2]",             0x08A07C41) \
+    X("CASALH W0, W1, [X2]",           0x48E0FC41) \
+    X("LDADD X0, X1, [X2]",            0xF8200041) \
+    X("LDADDA W0, W1, [X2]",           0xB8A00041) \
+    X("LDADDL W0, W1, [X2]",           0xB8600041) \
+    X("LDADDAL X0, X1, [X2]",          0xF8E00041) \
+    X("LDADDALB W0, W1, [X2]",         0x38E00041) \
+    X("LDADDH W0, W1, [X2]",           0x78200041) \
+    X("LDCLR W0, W1, [X2]",            0xB8201041) \
+    X("LDEOR X0, X1, [X2]",            0xF8202041) \
+    X("LDSET W0, W1, [X2]",            0xB8203041) \
+    X("LDSMAX X0, X1, [X2]",           0xF8204041) \
+    X("LDSMINAL W0, W1, [X2]",         0xB8E05041) \
+    X("LDUMAXB W0, W1, [X2]",          0x38206041) \
+    X("LDUMINLH W0, W1, [X2]",         0x78607041) \
+    X("SWP X0, X1, [X2]",              0xF8208041) \
+    X("SWPAL W0, W1, [X2]",            0xB8E08041) \
+    X("SWPB W0, W1, [X2]",             0x38208041) \
+    X("STADD W0, [X2]",                0xB820005F) \
+    X("STADDL X0, [X2]",               0xF860005F) \
+    X("STCLRB W0, [X2]",               0x3820105F) \
+    X("STSETLH W0, [X2]",              0x7860305F) \
+    X("STSMAX X0, [SP]",               0xF82043FF) \
+    X("LSL X0, X1, #3",                0xD37DF020) \
+    X("LSL W0, W1, #3",                0x531D7020) \
+    X("LSL X0, X1, #63",               0xD3410020) \
+    X("LSL W0, W1, #0",                0x53007C20) \
+    X("LSR X0, X1, #3",                0xD343FC20) \
+    X("LSR W0, W1, #31",               0x531F7C20) \
+    X("ASR W0, W1, #31",               0x131F7C20) \
+    X("ASR X0, X1, #1",                0x9341FC20) \
+    X("ROR X0, X1, #7",                0x93C11C20) \
+    X("ROR W0, W1, #31",               0x13817C20) \
+    X("LSL X0, X1, X2",                0x9AC22020) \
+    X("LSR W0, W1, W2",                0x1AC22420) \
+    X("ASR X0, X1, X2",                0x9AC22820) \
+    X("ROR W0, W1, W2",                0x1AC22C20) \
+    X("LSLV X0, X1, X2",               0x9AC22020) \
+    X("RORV W0, W1, W2",               0x1AC22C20) \
+    X("UBFX X0, X1, #4, #8",           0xD3442C20) \
+    X("UBFX W0, W1, #31, #1",          0x531F7C20) \
+    X("SBFX X0, X1, #0, #32",          0x93407C20) \
+    X("BFXIL W0, W1, #3, #2",          0x33031020) \
+    X("UBFIZ X0, X1, #4, #8",          0xD37C1C20) \
+    X("SBFIZ W0, W1, #2, #5",          0x131E1020) \
+    X("BFI X0, X1, #8, #4",            0xB3780C20) \
+    X("BFI W0, W1, #0, #32",           0x33007C20) \
+    X("SXTB X0, W1",                   0x93401C20) \
+    X("SXTB W0, W1",                   0x13001C20) \
+    X("SXTH X0, W1",                   0x93403C20) \
+    X("SXTH W0, W1",                   0x13003C20) \
+    X("SXTW X0, W1",                   0x93407C20) \
+    X("UXTB W0, W1",                   0x53001C20) \
+    X("UXTH W0, W1",                   0x53003C20) \
+    X("UBFM X0, X1, #4, #11",          0xD3442C20) \
+    X("SBFM W0, W1, #1, #2",           0x13010820) \
+    X("BFM X0, X1, #56, #3",           0xB3780C20) \
+    X("EXTR X0, X1, X2, #8",           0x93C22020) \
+    X("EXTR W0, W1, W2, #31",          0x13827C20) \
+    X("CSEL X0, X1, X2, EQ",           0x9A820020) \
+    X("CSEL W0, W1, W2, HS",           0x1A822020) \
+    X("CSINC W0, W1, W2, NE",          0x1A821420) \
+    X("CSINV X0, X1, XZR, LT",         0xDA9FB020) \
+    X("CSNEG W0, W1, W2, AL",          0x5A82E420) \
+    X("CSET W0, EQ",                   0x1A9F17E0) \
+    X("CSET X0, HI",                   0x9A9F97E0) \
+    X("CSETM X0, NE",                  0xDA9F03E0) \
+    X("CINC X0, X1, LT",               0x9A81A420) \
+    X("CINV W0, W1, CC",               0x5A812020) \
+    X("CNEG W0, W1, GE",               0x5A81B420) \
+    X("CCMP X0, X1, #4, NE",           0xFA411004) \
+    X("CCMP W0, #5, #0, EQ",           0x7A450800) \
+    X("CCMN X0, #1, #2, GT",           0xBA41C802) \
+    X("CCMN W0, W1, #15, LO",          0x3A41300F) \
+    X("MADD X0, X1, X2, X3",           0x9B020C20) \
+    X("MADD W0, W1, W2, W3",           0x1B020C20) \
+    X("MSUB X0, X1, X2, X3",           0x9B028C20) \
+    X("MUL W0, W1, W2",                0x1B027C20) \
+    X("MUL X0, X1, X2",                0x9B027C20) \
+    X("MNEG X0, X1, X2",               0x9B02FC20) \
+    X("SMADDL X0, W1, W2, X3",         0x9B220C20) \
+    X("UMADDL X0, W1, W2, X3",         0x9BA20C20) \
+    X("SMSUBL X0, W1, W2, X3",         0x9B228C20) \
+    X("UMSUBL X0, W1, W2, X3",         0x9BA28C20) \
+    X("SMULL X0, W1, W2",              0x9B227C20) \
+    X("UMULL X0, W1, W2",              0x9BA27C20) \
+    X("SMNEGL X0, W1, W2",             0x9B22FC20) \
+    X("UMNEGL X0, W1, W2",             0x9BA2FC20) \
+    X("SMULH X0, X1, X2",              0x9B427C20) \
+    X("UMULH X0, X1, X2",              0x9BC27C20) \
+    X("UDIV W0, W1, W2",               0x1AC20820) \
+    X("SDIV X0, X1, X2",               0x9AC20C20) \
+    X("ADC X0, X1, X2",                0x9A020020) \
+    X("ADCS W0, W1, W2",               0x3A020020) \
+    X("SBC X0, X1, X2",                0xDA020020) \
+    X("SBCS W0, W1, W2",               0x7A020020) \
+    X("NGC X0, X1",                    0xDA0103E0) \
+    X("NGCS W0, W1",                   0x7A0103E0) \
+    X("BIC X0, X1, X2",                0x8A220020) \
+    X("BICS W0, W1, W2, LSR #3",       0x6A620C20) \
+    X("ORN W0, W1, W2",                0x2A220020) \
+    X("EON X0, X1, X2, LSL #3",        0xCA220C20) \
+    X("BIC X0, X1, X2, ROR #63",       0x8AE2FC20) \
+    X("MVN X0, X1",                    0xAA2103E0) \
+    X("MVN W0, W1, LSL #4",            0x2A2113E0) \
+    X("NEG X0, X1",                    0xCB0103E0) \
+    X("NEG W0, W1, LSL #2",            0x4B010BE0) \
+    X("NEGS W0, W1",                   0x6B0103E0) \
+    X("NEGS X0, X1, ASR #3",           0xEB810FE0) \
+    X("LDR S0, [X0,#8]",               0xBD400800) \
+    X("LDR D0, [X0,#8]",               0xFD400400) \
+    X("LDR Q0, [X0,#16]",              0x3DC00400) \
+    X("LDR B0, [X0,#1]",               0x3D400400) \
+    X("LDR H0, [X0,#2]",               0x7D400400) \
+    X("STR D0, [SP,#8]",               0xFD0007E0) \
+    X("STR Q1, [X2,#0x30]",            0x3D800C41) \
+    X("STR S3, [X4,#-4]!",             0xBC1FCC83) \
+    X("LDR D1, [X2],#8",               0xFC408441) \
+    X("LDR Q0, [X1,X2,LSL#4]",         0x3CE27820) \
+    X("LDR D0, [X1,X2]",               0xFC626820) \
+    X("LDR S0, [X1,#-4]",              0xBC5FC020) \
+    X("LDR D0, [X1,#3]",               0xFC403020) \
+    X("LDUR Q0, [X0,#-16]",            0x3CDF0000) \
+    X("STUR D0, [X29,#-8]",            0xFC1F83A0) \
+    X("LDUR S0, [X0,#1]",              0xBC401000) \
+    X("STP D9, D8, [SP,#-0x20]!",      0x6DBE23E9) \
+    X("LDP D9, D8, [SP],#0x20",        0x6CC223E9) \
+    X("LDP Q0, Q1, [X1]",              0xAD400420) \
+    X("STP Q0, Q1, [X0,#0x20]",        0xAD010400) \
+    X("LDP S0, S1, [X1,#8]",           0x2D410420) \
+    X("STP D0, D1, [SP,#0x10]",        0x6D0107E0) \
+    X("LDR D0, #0x100",                0x5C000800) \
+    X("LDR Q0, #0x100",                0x9C000800) \
+    X("LDR S1, #-8",                   0x1CFFFFC1) \
+    X("FMOV D0, D1",                   0x1E604020) \
+    X("FMOV S0, S1",                   0x1E204020) \
+    X("FMOV H0, H1",                   0x1EE04020) \
+    X("FMOV S0, W1",                   0x1E270020) \
+    X("FMOV W0, S1",                   0x1E260020) \
+    X("FMOV D0, X1",                   0x9E670020) \
+    X("FMOV X0, D1",                   0x9E660020) \
+    X("FMOV H0, W1",                   0x1EE70020) \
+    X("FMOV W0, H1",                   0x1EE60020) \
+    X("FMOV H0, X1",                   0x9EE70020) \
+    X("FMOV X0, H1",                   0x9EE60020) \
+    X("FMOV D0, XZR",                  0x9E6703E0) \
+    X("FMOV S0, WZR",                  0x1E2703E0) \
+    X("FMOV D0, #1.0",                 0x1E6E1000) \
+    X("FMOV S0, #-2.5",                0x1E309000) \
+    X("FMOV D1, #0.125",               0x1E681001) \
+    X("FMOV S2, #31.0",                0x1E27F002) \
+    X("FMOV H3, #0.5",                 0x1EEC1003) \
+    X("FMOV D0, #-1",                  0x1E7E1000) \
+    X("FMOV D0, #0.0",                 0x9E6703E0) \
+    X("FMOV S0, #0.0",                 0x1E2703E0) \
+    X("FMOV D4, #1.0625",              0x1E6E3004)
 
 // Wildcard pattern, an instruction, its encoding, and whether the pattern must match it
 #define WILDCARD(X) \
@@ -244,6 +502,16 @@
     X("LDR X?, [X29,#-8]",       "LDUR X3, [X29,#-8]",          0xF85F83A3, 1) \
     X("LDR ?, [X29,#-8]",        "LDUR W0, [X29,#-8]",          0xB85F83A0, 1) \
     X("LDR ?, [X29,#-8]",        "LDR X0, [X29,#8]",            0xF94007A0, 0) \
+    X("LDR ?, [X1,#0x81]",       "LDUR W0, [X1,#0x81]",         0xB8481020, 1) \
+    X("LDR ?, [X1,#0x81]",       "LDUR X0, [X1,#0x81]",         0xF8481020, 1) \
+    X("LDR ?, [X1,#0xC]",        "LDR W0, [X1,#0xC]",           0xB9400C20, 1) \
+    X("LDR ?, [X1,#0xC]",        "LDUR X0, [X1,#0xC]",          0xF840C020, 1) \
+    X("LDR ?, [X1,#0xC]",        "STR W0, [X1,#0xC]",           0xB9000C20, 0) \
+    X("LDR ?, [X1,#0x4000]",     "LDR X0, [X1,#0x4000]",        0xF9600020, 1) \
+    X("LDR X?, [X?,X?,?]",       "LDR X2, [X3,W4,SXTW]",        0xF864C862, 1) \
+    X("LDR X?, [X?,X?,?]",       "LDR X2, [X3,X4,LSL#3]",       0xF8647862, 1) \
+    X("LDR X?, [X?,X?,? #3]",    "LDR X2, [X3,W4,SXTW#3]",      0xF864D862, 1) \
+    X("LDR X?, [X?,X?,? #3]",    "LDR X2, [X3,X4]",             0xF8646862, 0) \
     X("LDR X?, [X?,X?,LSL#?]",   "LDR X2, [X3,X4]",             0xF8646862, 1) \
     X("LDUR X?, [X?,#?]",        "LDUR X0, [X1,#0x10]",         0xF8410020, 1) \
     X("LDUR X?, [X?,#?]",        "LDR X0, [X1,#0x10]",          0xF9400820, 0) \
@@ -290,7 +558,171 @@
     X("MOV X0, #?",              "MOVK X0, #5",                 0xF28000A0, 0) \
     X("LDP X29, X30, [SP]",      "LDP X29, X30, [SP],#0x20",    0xA8C27BFD, 0) \
     X("ADD ?, X1, #8",           "ADD W0, W1, #8",              0x11002020, 0) \
-    X("STP ?, X30, [SP,#-0x10]!", "STP W29, W30, [SP,#-8]!",    0x29BF7BFD, 0)
+    X("STP ?, X30, [SP,#-0x10]!", "STP W29, W30, [SP,#-8]!",    0x29BF7BFD, 0) \
+    X("TBZ W?, #?, #?",        "TBZ W5, #7, #0x40",           0x36380205, 1) \
+    X("TBZ W?, #?, #?",        "TBNZ W5, #7, #0x40",          0x37380205, 0) \
+    X("TBZ W?, #?, #?",        "TBZ X5, #33, #0x40",          0xB6080205, 0) \
+    X("TBZ X?, #?, #?",        "TBZ X5, #33, #0x40",          0xB6080205, 1) \
+    X("TBZ ?, #?, #?",         "TBZ X5, #33, #0x40",          0xB6080205, 1) \
+    X("TBZ X0, #40, #?",       "TBZ X0, #40, #-0x100",        0xB647F800, 1) \
+    X("TBZ X0, #40, #?",       "TBZ X0, #8, #-0x100",         0x3647F800, 0) \
+    X("SVC #?",                "SVC #0x80",                   0xD4001001, 1) \
+    X("SVC #?",                "BRK #0x80",                   0xD4201000, 0) \
+    X("BRK #?",                "BRK #1",                      0xD4200020, 1) \
+    X("UDF #?",                "UDF #0x1234",                 0x00001234, 1) \
+    X("BTI ?",                 "BTI C",                       0xD503245F, 1) \
+    X("BTI ?",                 "BTI JC",                      0xD50324DF, 1) \
+    X("BTI ?",                 "NOP",                         0xD503201F, 0) \
+    X("BTI C",                 "BTI J",                       0xD503249F, 0) \
+    X("BRAA X?, X?",           "BRAA X16, X17",               0xD71F0A11, 1) \
+    X("BRAA X?, X?",           "BRAB X16, X17",               0xD71F0E11, 0) \
+    X("BLRAA X8, X?",          "BLRAA X8, SP",                0xD73F091F, 1) \
+    X("BLRAAZ X?",             "BLRAAZ X8",                   0xD63F091F, 1) \
+    X("BLRAAZ X?",             "BLRAA X8, X9",                0xD73F0909, 0) \
+    X("LDRAA X?, [X?,#?]",     "LDRAA X0, [X1,#-8]",          0xF87FF420, 1) \
+    X("LDRAA X?, [X?,#?]",     "LDRAA X0, [X1,#8]!",          0xF8201C20, 0) \
+    X("LDRAA X?, [X?,#?]!",    "LDRAA X0, [X1,#8]!",          0xF8201C20, 1) \
+    X("LDRAA X?, [X?,#?]",     "LDRAB X0, [X1,#8]",           0xF8A01420, 0) \
+    X("PACIA X?, X?",          "PACIA X16, SP",               0xDAC103F0, 1) \
+    X("PACIA X?, X?",          "PACIB X16, SP",               0xDAC107F0, 0) \
+    X("AUTIZA X?",             "AUTIZA X3",                   0xDAC133E3, 1) \
+    X("LDRSB W?, [X?,#?]",     "LDRSB W0, [X1,#5]",           0x39C01420, 1) \
+    X("LDRSB W?, [X?,#?]",     "LDRSB X0, [X1,#5]",           0x39801420, 0) \
+    X("LDRSB ?, [X?,#?]",      "LDRSB X0, [X1,#5]",           0x39801420, 1) \
+    X("LDRSB ?, [X?,#?]",      "LDRB W0, [X1,#5]",            0x39401420, 0) \
+    X("LDRSH X?, [X?,#?]!",    "LDRSH X0, [X1,#-2]!",         0x789FEC20, 1) \
+    X("LDURSH ?, [X?,#?]",     "LDURSH W0, [X1,#-2]",         0x78DFE020, 1) \
+    X("LDPSW X?, X?, [SP,#?]", "LDPSW X1, X2, [SP,#0x10]",    0x69420BE1, 1) \
+    X("LDPSW X?, X?, [SP,#?]", "LDP X1, X2, [SP,#0x10]",      0xA9410BE1, 0) \
+    X("LDNP X?, X?, [X?,#?]",  "LDNP X1, X2, [X3,#0x10]",     0xA8410861, 1) \
+    X("LDNP X?, X?, [X?,#?]",  "LDP X1, X2, [X3,#0x10]",      0xA9410861, 0) \
+    X("LDXR ?, [X?]",          "LDXR X0, [X1]",               0xC85F7C20, 1) \
+    X("LDXR ?, [X?]",          "LDXR W0, [X1]",               0x885F7C20, 1) \
+    X("LDXR ?, [X?]",          "LDAXR W0, [X1]",              0x885FFC20, 0) \
+    X("LDXR W?, [X?]",         "LDXR X0, [X1]",               0xC85F7C20, 0) \
+    X("STXR W?, X?, [X?]",     "STXR W2, X0, [X1]",           0xC8027C20, 1) \
+    X("STXR W?, X?, [X?]",     "STXR W2, W0, [X1]",           0x88027C20, 0) \
+    X("STXR ?, ?, [X?]",       "STXR W2, W0, [X1]",           0x88027C20, 1) \
+    X("STLR ?, [X?]",          "STLR X0, [SP]",               0xC89FFFE0, 1) \
+    X("LDARB W?, [X?]",        "LDARB W0, [X1]",              0x08DFFC20, 1) \
+    X("LDARB W?, [X?]",        "LDAR W0, [X1]",               0x88DFFC20, 0) \
+    X("CAS ?, ?, [X?]",        "CAS X0, X1, [X2]",            0xC8A07C41, 1) \
+    X("CAS ?, ?, [X?]",        "CASA X0, X1, [X2]",           0xC8E07C41, 0) \
+    X("CAS ?, ?, [X?]",        "CASB W0, W1, [X2]",           0x08A07C41, 0) \
+    X("CASAL W?, W?, [X?]",    "CASAL W0, W1, [X2]",          0x88E0FC41, 1) \
+    X("LDADDAL ?, ?, [X?]",    "LDADDAL X0, X1, [X2]",        0xF8E00041, 1) \
+    X("LDADDAL ?, ?, [X?]",    "LDADDAL W0, W1, [X2]",        0xB8E00041, 1) \
+    X("LDADDAL ?, ?, [X?]",    "LDADD W0, W1, [X2]",          0xB8200041, 0) \
+    X("LDADDAL ?, ?, [X?]",    "LDCLRAL W0, W1, [X2]",        0xB8E01041, 0) \
+    X("STADD W?, [X?]",        "STADD W0, [X2]",              0xB820005F, 1) \
+    X("STADD W?, [X?]",        "LDADD W0, W1, [X2]",          0xB8200041, 0) \
+    X("SWP X?, X?, [X?]",      "SWP X0, X1, [X2]",            0xF8208041, 1) \
+    X("SWP X?, X?, [X?]",      "LDADD X0, X1, [X2]",          0xF8200041, 0) \
+    X("LSL X?, X?, #?",        "LSL X0, X1, #3",              0xD37DF020, 1) \
+    X("LSL X?, X?, #?",        "LSR X0, X1, #3",              0xD343FC20, 1) \
+    X("LSL X?, X?, #?",        "LSL W0, W1, #3",              0x531D7020, 0) \
+    X("LSL X?, X?, #?",        "ASR X0, X1, #3",              0x9343FC20, 0) \
+    X("LSL ?, ?, #3",          "LSL X0, X1, #3",              0xD37DF020, 1) \
+    X("LSL ?, ?, #3",          "LSL W0, W1, #3",              0x531D7020, 1) \
+    X("LSL ?, ?, #3",          "LSL X0, X1, #4",              0xD37CEC20, 0) \
+    X("LSL ?, ?, #40",         "LSL X0, X1, #40",             0xD3585C20, 1) \
+    X("LSR X?, X?, #?",        "LSR X0, X1, #3",              0xD343FC20, 1) \
+    X("LSR X?, X?, #?",        "LSL X0, X1, #3",              0xD37DF020, 0) \
+    X("LSR X?, X?, #?",        "UBFX X0, X1, #3, #8",         0xD3432820, 0) \
+    X("LSR ?, ?, #?",          "LSR W0, W1, #3",              0x53037C20, 1) \
+    X("ASR W?, W?, #?",        "ASR W0, W1, #31",             0x131F7C20, 1) \
+    X("ASR W?, W?, #?",        "LSR W0, W1, #31",             0x531F7C20, 0) \
+    X("ROR X?, X?, #?",        "ROR X0, X1, #7",              0x93C11C20, 1) \
+    X("ROR X?, X?, #?",        "EXTR X0, X1, X2, #7",         0x93C21C20, 1) \
+    X("ROR X0, X1, #?",        "EXTR X0, X1, X2, #7",         0x93C21C20, 0) \
+    X("LSL X?, X?, X?",        "LSL X0, X1, X2",              0x9AC22020, 1) \
+    X("LSL X?, X?, X?",        "LSR X0, X1, X2",              0x9AC22420, 0) \
+    X("LSL X?, X?, X?",        "LSL X0, X1, #2",              0xD37EF420, 0) \
+    X("UBFX X?, X?, #?, #8",   "UBFX X0, X1, #4, #8",         0xD3442C20, 1) \
+    X("UBFX X?, X?, #4, #?",   "UBFX X0, X1, #4, #9",         0xD3443020, 1) \
+    X("UBFX X?, X?, #4, #?",   "UBFX X0, X1, #5, #9",         0xD3453420, 0) \
+    X("UBFX X?, X?, #?, #?",   "SBFX X0, X1, #4, #9",         0x93443020, 0) \
+    X("UBFIZ W?, W?, #?, #5",  "UBFIZ W0, W1, #3, #5",        0x531D1020, 1) \
+    X("UBFIZ W?, W?, #?, #5",  "UBFIZ W0, W1, #3, #6",        0x531D1420, 0) \
+    X("BFI X?, X?, #8, #?",    "BFI X0, X1, #8, #4",          0xB3780C20, 1) \
+    X("SXTB ?, W?",            "SXTB X0, W1",                 0x93401C20, 1) \
+    X("SXTB ?, W?",            "SXTB W0, W1",                 0x13001C20, 1) \
+    X("SXTB ?, W?",            "SXTH W0, W1",                 0x13003C20, 0) \
+    X("SXTW ?, W?",            "SXTW X0, W1",                 0x93407C20, 1) \
+    X("UXTB ?, W?",            "UXTB W0, W1",                 0x53001C20, 1) \
+    X("UXTB ?, W?",            "UXTH W0, W1",                 0x53003C20, 0) \
+    X("UBFM X?, X?, #?, #?",   "UBFM X0, X1, #4, #11",        0xD3442C20, 1) \
+    X("UBFM X?, X?, #?, #?",   "SBFM X0, X1, #4, #11",        0x93442C20, 0) \
+    X("CSEL X?, X?, X?, ?",    "CSEL X0, X1, X2, LT",         0x9A82B020, 1) \
+    X("CSEL X?, X?, X?, ?",    "CSINC X0, X1, X2, LT",        0x9A82B420, 0) \
+    X("CSEL X?, X?, X?, EQ",   "CSEL X0, X1, X2, NE",         0x9A821020, 0) \
+    X("CSET W?, ?",            "CSET W0, EQ",                 0x1A9F17E0, 1) \
+    X("CSET W?, ?",            "CSET W0, LE",                 0x1A9FC7E0, 1) \
+    X("CSET W?, ?",            "CSINC W0, W1, W2, EQ",        0x1A820420, 0) \
+    X("CSET W?, EQ",           "CSET W0, NE",                 0x1A9F07E0, 0) \
+    X("CSET W?, EQ",           "CSINC W0, WZR, WZR, NE",      0x1A9F17E0, 1) \
+    X("CSETM ?, ?",            "CSETM X0, NE",                0xDA9F03E0, 1) \
+    X("CINC X?, X?, ?",        "CINC X0, X1, LT",             0x9A81A420, 1) \
+    X("CINC X0, X1, ?",        "CSINC X0, X1, X2, LT",        0x9A82B420, 0) \
+    X("CNEG W?, W?, GE",       "CNEG W0, W1, GE",             0x5A81B420, 1) \
+    X("CCMP X?, X?, #?, ?",    "CCMP X0, X1, #4, NE",         0xFA411004, 1) \
+    X("CCMP X?, X?, #?, ?",    "CCMP X0, #1, #4, NE",         0xFA411804, 0) \
+    X("CCMP X?, #?, #?, ?",    "CCMP X0, #1, #4, NE",         0xFA411804, 1) \
+    X("CCMP X?, #?, #?, ?",    "CCMN X0, #1, #4, NE",         0xBA411804, 0) \
+    X("CCMP W0, #5, #?, EQ",   "CCMP W0, #5, #8, EQ",         0x7A450808, 1) \
+    X("MADD X?, X?, X?, X?",   "MADD X0, X1, X2, X3",         0x9B020C20, 1) \
+    X("MADD X?, X?, X?, X?",   "MSUB X0, X1, X2, X3",         0x9B028C20, 0) \
+    X("MADD X?, X?, X?, X?",   "MUL X0, X1, X2",              0x9B027C20, 1) \
+    X("MUL ?, ?, ?",           "MUL W0, W1, W2",              0x1B027C20, 1) \
+    X("MUL ?, ?, ?",           "MADD W0, W1, W2, W3",         0x1B020C20, 0) \
+    X("SMULL X?, W?, W?",      "SMULL X0, W1, W2",            0x9B227C20, 1) \
+    X("SMULL X?, W?, W?",      "UMULL X0, W1, W2",            0x9BA27C20, 0) \
+    X("UDIV ?, ?, ?",          "UDIV X0, X1, X2",             0x9AC20820, 1) \
+    X("UDIV ?, ?, ?",          "SDIV X0, X1, X2",             0x9AC20C20, 0) \
+    X("BIC X?, X?, X?",        "BIC X0, X1, X2",              0x8A220020, 1) \
+    X("BIC X?, X?, X?",        "AND X0, X1, X2",              0x8A020020, 0) \
+    X("BIC X?, X?, X?, ?",     "BIC X0, X1, X2, ROR #3",      0x8AE20C20, 1) \
+    X("MVN X?, X?",            "MVN X0, X1",                  0xAA2103E0, 1) \
+    X("MVN X?, X?",            "MOV X0, X1",                  0xAA0103E0, 0) \
+    X("NEG X?, X?",            "NEG X0, X1",                  0xCB0103E0, 1) \
+    X("NEG X?, X?",            "SUB X0, X1, X2",              0xCB020020, 0) \
+    X("NEGS ?, ?",             "NEGS W0, W1",                 0x6B0103E0, 1) \
+    X("ADC ?, ?, ?",           "ADC W0, W1, W2",              0x1A020020, 1) \
+    X("ADC ?, ?, ?",           "ADCS W0, W1, W2",             0x3A020020, 0) \
+    X("ORR X?, X?, X?, ?",     "ORR X0, X1, X2, ROR #7",      0xAAC21C20, 1) \
+    X("ORR X?, X?, X?, ?",     "ORR X0, X1, X2",              0xAA020020, 1) \
+    X("ORR X?, X?, X?, ?",     "ORN X0, X1, X2",              0xAA220020, 0) \
+    X("ADD X?, X?, X?, ?",     "ADD X0, X1, X2, ASR #3",      0x8B820C20, 1) \
+    X("ADD X?, X?, X?, ?",     "ADD X0, X1, W2, UXTW #2",     0x8B224820, 1) \
+    X("LDR D?, [X?,#?]",       "LDR D0, [X1,#8]",             0xFD400420, 1) \
+    X("LDR D?, [X?,#?]",       "LDR X0, [X1,#8]",             0xF9400420, 0) \
+    X("LDR D?, [X?,#?]",       "LDR S0, [X1,#8]",             0xBD400820, 0) \
+    X("LDR D?, [X?,#?]",       "STR D0, [X1,#8]",             0xFD000420, 0) \
+    X("LDR Q?, [X?,#?]",       "LDR Q0, [X1,#0x10]",          0x3DC00420, 1) \
+    X("LDR Q?, [X?,#?]",       "LDR B0, [X1,#0x10]",          0x3D404020, 0) \
+    X("LDR ?, [X?,#?]",        "LDR D0, [X1,#8]",             0xFD400420, 0) \
+    X("LDR S0, [X1,#?]",       "LDR S0, [X1,#0x40]",          0xBD404020, 1) \
+    X("STR D?, [SP,#?]!",      "STR D8, [SP,#-0x10]!",        0xFC1F0FE8, 1) \
+    X("LDUR Q?, [X?,#?]",      "LDUR Q0, [X0,#-16]",          0x3CDF0000, 1) \
+    X("LDR D?, #?",            "LDR D0, #0x100",              0x5C000800, 1) \
+    X("LDR D?, #?",            "LDR X0, #0x100",              0x58000800, 0) \
+    X("LDR D?, #?",            "LDR Q0, #0x100",              0x9C000800, 0) \
+    X("STP D?, D?, [SP,#?]!",  "STP D9, D8, [SP,#-0x20]!",    0x6DBE23E9, 1) \
+    X("STP D?, D?, [SP,#?]!",  "STP X9, X8, [SP,#-0x20]!",    0xA9BE23E9, 0) \
+    X("STP D?, D?, [SP,#?]!",  "STP Q9, Q8, [SP,#-0x20]!",    0xADBF23E9, 0) \
+    X("LDP Q?, Q?, [X?]",      "LDP Q0, Q1, [X1]",            0xAD400420, 1) \
+    X("LDP Q?, Q?, [X?,#?]",   "LDP Q0, Q1, [X1,#0x20]",      0xAD410420, 1) \
+    X("LDP ?, ?, [X?,#?]",     "LDP D0, D1, [X1,#0x20]",      0x6D420420, 0) \
+    X("FMOV D?, D?",           "FMOV D0, D1",                 0x1E604020, 1) \
+    X("FMOV D?, D?",           "FMOV S0, S1",                 0x1E204020, 0) \
+    X("FMOV D?, ?",            "FMOV D0, D1",                 0x1E604020, 1) \
+    X("FMOV ?, ?",             "FMOV S0, S1",                 0x1E204020, 1) \
+    X("FMOV D?, X?",           "FMOV D0, X1",                 0x9E670020, 1) \
+    X("FMOV D?, X?",           "FMOV X0, D1",                 0x9E660020, 0) \
+    X("FMOV D?, #?",           "FMOV D0, #1.0",               0x1E6E1000, 1) \
+    X("FMOV D?, #?",           "FMOV S0, #1.0",               0x1E2E1000, 0) \
+    X("FMOV D?, #?",           "FMOV D0, D1",                 0x1E604020, 0) \
+    X("FMOV D0, #1.0",         "FMOV D0, #-1.0",              0x1E7E1000, 0)
 
 struct Word { uint32_t pat, mask; };
 template <class P> static Word word(const P& p, size_t idx = 0) {
@@ -327,12 +759,43 @@ static void wildcards() {
 // Forms the encoder doesn't support become a whole-word wildcard (mask 0), which the IDA plugin warns about,
 // rather than a pattern that can never match
 static void unsupported() {
-    CHECK(word(ARM_PATTERN("LDR Q0, [X1,#0x10]")).mask == 0);
-    CHECK(word(ARM_PATTERN("STR D0, [SP,#8]")).mask == 0);
-    CHECK(word(ARM_PATTERN("STP D9, D8, [SP,#-0x20]!")).mask == 0);
     CHECK(word(ARM_PATTERN("LDR W0, [X1,#0x4000]")).mask == 0);    // past the unsigned offset's range
     CHECK(word(ARM_PATTERN("LDUR X0, [X1,#0x100]")).mask == 0);    // past imm9
     CHECK(word(ARM_PATTERN("B.XX #0x10")).mask == 0);
+    CHECK(word(ARM_PATTERN("TBZ W0, #32, #8")).mask == 0);
+    CHECK(word(ARM_PATTERN("TBZ X0, #64, #8")).mask == 0);
+    CHECK(word(ARM_PATTERN("SVC #0x10000")).mask == 0);
+    CHECK(word(ARM_PATTERN("BTI X")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDRAA W0, [X1]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDRAA X0, [X1,#4]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDRAA X0, [X1,#4096]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDRSB D0, [X1]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDRB D0, [X1]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDPSW W0, W1, [X2]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDNP X0, X1, [X2,#16]!")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDP B0, B1, [X2]")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDR B0, #0x10")).mask == 0);
+    CHECK(word(ARM_PATTERN("CSET W0, AL")).mask == 0);
+    CHECK(word(ARM_PATTERN("CINC X0, X1, NV")).mask == 0);
+    CHECK(word(ARM_PATTERN("CSEL X0, X1, X2, XX")).mask == 0);
+    CHECK(word(ARM_PATTERN("CCMP X0, #32, #0, EQ")).mask == 0);
+    CHECK(word(ARM_PATTERN("CCMP X0, #1, #16, EQ")).mask == 0);
+    CHECK(word(ARM_PATTERN("LSL X0, X1, #64")).mask == 0);
+    CHECK(word(ARM_PATTERN("LSL W0, W1, #32")).mask == 0);
+    CHECK(word(ARM_PATTERN("UBFX W0, W1, #30, #4")).mask == 0);
+    CHECK(word(ARM_PATTERN("SXTW W0, W1")).mask == 0);
+    CHECK(word(ARM_PATTERN("UXTB X0, W1")).mask == 0);
+    CHECK(word(ARM_PATTERN("BIC X0, X1, #0xFF")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV D0, #0.1")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV D0, #32.0")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV D0, #-0.0")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV Q0, #1.0")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV S0, X1")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV D0, W1")).mask == 0);
+    CHECK(word(ARM_PATTERN("FMOV D0, S1")).mask == 0);
+    CHECK(word(ARM_PATTERN("LDADDX W0, W1, [X2]")).mask == 0);
+    CHECK(word(ARM_PATTERN("STADDA W0, [X2]")).mask == 0);
+    CHECK(word(ARM_PATTERN("CASP X0, X1, X2, X3, [X4]")).mask == 0);
     puts("  unsupported forms ok");
 }
 
@@ -460,8 +923,12 @@ static void deref_synthetic() {
         const auto at = reinterpret_cast<const uint8_t*>(&vals[k]);
         CHECK(p.resolve(at, at + 4, &is_value) == reinterpret_cast<void*>(want[k]) && is_value);
     }
-    // Branches and literal loads with imm19 resolve to their target
-    static const uint32_t imm19[] = { 0x54000100, 0xB4000100, 0x58000100 };   // B.EQ, CBZ X0, LDR X0 (literal): #0x20
+    // Branches and literal loads resolve to their target
+    static const uint32_t imm19[] = {
+        0x54000100, 0xB4000100, 0x58000100,   // B.EQ, CBZ X0, LDR X0 (literal): #0x20
+        0x5C000100, 0x9C000100,               // LDR D0, LDR Q0 (literal): #0x20
+        0x36180100, 0xB7400101,               // TBZ W0, #3 and TBNZ X1, #40: #0x20
+    };
     for (auto& w : imm19) {
         const auto at = reinterpret_cast<const uint8_t*>(&w);
         CHECK(patterns::RuntimeArmPattern("X ?\n/d").resolve(at, at + 4) == at + 0x20);
@@ -477,6 +944,11 @@ static void deref_synthetic() {
         { { 0x90000009, 0x91004108 }, 0x10 },  // ADRP X9, #0; ADD X8, X8, #0x10
         { { 0xD503201F, 0x91004108 }, 0x10 },  // NOP; ADD X8, X8, #0x10
         { { 0xD503201F, 0x39448D00 }, 0x123 }, // NOP; LDRB W0, [X8,#0x123]
+        { { 0xFD400D00, 0 }, 0x18 },         // LDR D0, [X8,#0x18]
+        { { 0x3DC00901, 0 }, 0x20 },         // LDR Q1, [X8,#0x20]
+        { { 0xBC5FC102, 0 }, -4 },           // LDUR S2, [X8,#-4]
+        { { 0xFD400128, 0x39448D00 }, 0x123 }, // LDR D8, [X9] (not X8); LDRB W0, [X8,#0x123]
+        { { 0xF90003E8, 0x39448D00 }, 0x123 }, // STR X8, [SP]; LDRB W0, [X8,#0x123]
     };
     for (auto& f : follow) {
         alignas(4) uint32_t code[4] = { 0x528EEEE9, 0xB0000028, f.next[0], f.next[1] };   // MOVZ W9; ADRP X8, #0x5000
@@ -491,7 +963,7 @@ static void deref_synthetic() {
 #define SYM(x) "_" x
 #define ASM_LINE(text, ...) text "\n"
 #define ASM_WILD(ptext, itext, ...) itext "\n"
-__asm__(".data\n.p2align 2\n.arch_extension pauth\n.globl " SYM("asm_concrete") "\n" SYM("asm_concrete") ":\n" CONCRETE(ASM_LINE)
+__asm__(".data\n.p2align 2\n.arch armv8.5-a+fp16+lse+rcpc+pauth\n.globl " SYM("asm_concrete") "\n" SYM("asm_concrete") ":\n" CONCRETE(ASM_LINE)
         ".globl " SYM("asm_wildcard") "\n" SYM("asm_wildcard") ":\n" WILDCARD(ASM_WILD));
 extern "C" const uint32_t asm_concrete[], asm_wildcard[];
 
