@@ -6,7 +6,7 @@ namespace patterns {
 
     namespace detail {
         constexpr size_t pattern_length(const char* s, size_t nstr) {
-            return parse_bytes(s, nstr - 1, [](size_t, const char*) {}, [](size_t, const char*) {}, [](const char*) {});
+            return parse_bytes(s, nstr - 1, [](size_t, char, char) {}, [](size_t, const char*) {}, [](const char*) {});
         }
 
         template<size_t nstr>

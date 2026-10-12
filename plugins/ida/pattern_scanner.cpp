@@ -101,20 +101,24 @@ namespace {
             ti.text = text;
             if (ask_form(form, &ti, &kind, &opts) != ASKBTN_YES) return;
             text = ti.text;
-            if (kind == pscan::arm64_pattern) {
-                const qstring unknown = pscan::unsupported_lines(text);
-                if (!unknown.empty() && ask_yn(ASKBTN_NO, "HIDECANCEL\nPatternScanner doesn't support these instructions, "
-                        "so they would match any instruction:\n\n%s\nSearch anyway?", unknown.c_str()) != ASKBTN_YES)
-                    return;
-            }
+            // Parsed before listing unsupported lines: both throw on a line too long, and an exception escaping
+            // into IDA would take it down
+            std::optional<pscan::pattern_t> parsed;
             try {
-                last = pscan::parse(text, static_cast<pscan::kind_t>(kind));
+                parsed = pscan::parse(text, static_cast<pscan::kind_t>(kind));
             }
             catch (const std::logic_error& e) {
                 last.reset();
                 warning("PatternScanner: %s", e.what());
                 return;
             }
+            if (kind == pscan::arm64_pattern) {
+                const qstring unknown = pscan::unsupported_lines(text);
+                if (!unknown.empty() && ask_yn(ASKBTN_NO, "HIDECANCEL\nPatternScanner doesn't support these instructions, "
+                        "so they would match any instruction:\n\n%s\nSearch anyway?", unknown.c_str()) != ASKBTN_YES)
+                    return;
+            }
+            last = std::move(parsed);
             const auto& p = pscan::base(*last);
             if (!p.length()) {
                 last.reset();

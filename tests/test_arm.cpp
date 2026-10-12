@@ -146,7 +146,21 @@
     X("PACIASP",                     0xD503233F) \
     X("PACIBSP",                     0xD503237F) \
     X("AUTIASP",                     0xD50323BF) \
-    X("AUTIBSP",                     0xD50323FF)
+    X("AUTIBSP",                     0xD50323FF) \
+    X("ORR X0, X1, X2, LSL #3",      0xAA020C20) \
+    X("TST X0, X1, LSL #2",          0xEA01081F) \
+    X("ORR X0, X1, X2, ROR #5",      0xAAC21420) \
+    X("ADD X0, X1, #0x1000",         0x91400420) \
+    X("SUB SP, SP, #0x1000",         0xD14007FF) \
+    X("ADD X0, X1, #-8",             0xD1002020) \
+    X("CMP X0, #-1",                 0xB100041F) \
+    X("ADD X0, SP, X1",              0x8B2163E0) \
+    X("ADD SP, SP, X1",              0x8B2163FF) \
+    X("ADD X0, SP, X1, LSL #2",      0x8B216BE0) \
+    X("ADD W0, WSP, W1",             0x0B2143E0) \
+    X("LDP X29, X30, [SP]",          0xA9407BFD) \
+    X("STP X29, X30, [SP]",          0xA9007BFD) \
+    X("ADR X0, #-1",                 0x70FFFFE0)
 
 // Wildcard pattern, an instruction, its encoding, and whether the pattern must match it
 #define WILDCARD(X) \
@@ -267,7 +281,16 @@
     X("B.? #?",                  "B.GT #0x20",                  0x5400010C, 1) \
     X("B.? #?",                  "B #0x10",                     0x14000004, 0) \
     X("B.? ?",                   "CBZ W0, #0x10",               0x34000080, 0) \
-    X("B.HS ?",                  "B.CS #0x100",                 0x54000802, 1)
+    X("B.HS ?",                  "B.CS #0x100",                 0x54000802, 1) \
+    X("EOR X0, X1, X2, LSR #?",  "EOR X0, X1, X2, LSR #3",      0xCA420C20, 1) \
+    X("SUB SP, SP, #?",          "SUB SP, SP, #1, LSL #12",     0xD14007FF, 1) \
+    X("SUB SP, SP, #?",          "SUB SP, SP, #0x20",           0xD10083FF, 1) \
+    X("CMP X0, #?",              "CMP X0, #1, LSL #12",         0xF140041F, 1) \
+    X("MOV X0, #?",              "MOVN X0, #5",                 0x928000A0, 1) \
+    X("MOV X0, #?",              "MOVK X0, #5",                 0xF28000A0, 0) \
+    X("LDP X29, X30, [SP]",      "LDP X29, X30, [SP],#0x20",    0xA8C27BFD, 0) \
+    X("ADD ?, X1, #8",           "ADD W0, W1, #8",              0x11002020, 0) \
+    X("STP ?, X30, [SP,#-0x10]!", "STP W29, W30, [SP,#-8]!",    0x29BF7BFD, 0)
 
 struct Word { uint32_t pat, mask; };
 template <class P> static Word word(const P& p, size_t idx = 0) {
@@ -421,6 +444,44 @@ static void deref_synthetic() {
     CHECK(movz.resolve(movz.match(bytes, sizeof chain), bytes + sizeof chain, &is_value) == reinterpret_cast<void*>(0x7777) && is_value);
     const auto ldr = ARM_PATTERN("ADD X1, X0, #0x10\nX LDR X2, [X1,#?]\n/d");
     CHECK(ldr.resolve(ldr.match(bytes, sizeof chain), bytes + sizeof chain, &is_value) == reinterpret_cast<void*>(8) && is_value);
+
+    // MOVZ/MOVN shifts, and /d values of loads/stores the old decoders missed (LDUR, LDRB, big STR offsets)
+    static const uint32_t vals[] = {
+        0xD2A00020,   // MOVZ X0, #1, LSL #16
+        0xD2C00020,   // MOVZ X0, #1, LSL #32
+        0x92800000,   // MOVN X0, #0 (MOV X0, #-1)
+        0xF85F83A0,   // LDUR X0, [X29,#-8]
+        0x39448C20,   // LDRB W0, [X1,#0x123]
+        0xF9200020,   // STR X0, [X1,#0x4000]
+    };
+    const int64_t want[] = { 0x10000, 0x100000000, -1, -8, 0x123, 0x4000 };
+    for (size_t k = 0; k < 6; ++k) {
+        const patterns::RuntimeArmPattern p("X ?\n/d");
+        const auto at = reinterpret_cast<const uint8_t*>(&vals[k]);
+        CHECK(p.resolve(at, at + 4, &is_value) == reinterpret_cast<void*>(want[k]) && is_value);
+    }
+    // Branches and literal loads with imm19 resolve to their target
+    static const uint32_t imm19[] = { 0x54000100, 0xB4000100, 0x58000100 };   // B.EQ, CBZ X0, LDR X0 (literal): #0x20
+    for (auto& w : imm19) {
+        const auto at = reinterpret_cast<const uint8_t*>(&w);
+        CHECK(patterns::RuntimeArmPattern("X ?\n/d").resolve(at, at + 4) == at + 0x20);
+    }
+
+    // ADRP X8, #0x5000 followed by: LDRB, LDRSW, pre-index with a negative offset, post-index, and an unrelated
+    // ADRP between ADRP and its ADD
+    struct { uint32_t next[2]; int64_t add; } follow[] = {
+        { { 0x39448D00, 0 }, 0x123 },        // LDRB W0, [X8,#0x123]
+        { { 0xB9801100, 0 }, 0x10 },         // LDRSW X0, [X8,#0x10]
+        { { 0xF85F8D00, 0 }, -8 },           // LDR X0, [X8,#-8]!
+        { { 0xF8408500, 0 }, 0 },            // LDR X0, [X8],#8
+        { { 0x90000009, 0x91004108 }, 0x10 },  // ADRP X9, #0; ADD X8, X8, #0x10
+    };
+    for (auto& f : follow) {
+        alignas(4) uint32_t code[4] = { 0x528EEEE9, 0xB0000028, f.next[0], f.next[1] };   // MOVZ W9; ADRP X8, #0x5000
+        const auto b = reinterpret_cast<const uint8_t*>(code);
+        const auto pg = (reinterpret_cast<uintptr_t>(&code[1]) & ~uintptr_t(0xFFF)) + 0x5000;
+        CHECK(adrl.find<uintptr_t>(b, sizeof code) == pg + f.add);
+    }
     puts("  /d on synthetic code ok");
 }
 

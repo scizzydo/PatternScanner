@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <type_traits>
 
 // Define PATTERNS_NO_SIMD where vector registers are off-limits (e.g. kernel code); find() then uses 64-bit integer (SWAR) scanning
 #if defined(PATTERNS_NO_SIMD)
@@ -85,29 +86,19 @@ namespace patterns {
         constexpr __forceinline char get_bits(char c) {
             return is_digit(c) ? (c - '0') : ((c & (~0x20)) - 'A' + 0xA);
         }
-        template<typename T = int32_t>
-        constexpr T stoi_impl(const char* str, T value = 0, bool negative = false, bool hex = false) {
-            if (*str == '\0') return negative ? -value : value;
-            if (hex) {
-                if (is_hex_digit(*str))
-                    return stoi_impl<T>(str + 1, get_bits(*str) + value * 16, negative, hex);
-            } else {
-                if (is_digit(*str))
-                    return stoi_impl<T>(str + 1, (*str - '0') + value * 10, negative, hex);
-            }
-            return negative ? -value : value;
-        }
+        // Decimal or 0x hex, optionally negative; stops at the first other character. Accumulates unsigned, so long
+        // numbers wrap instead of overflowing
         template<typename T = int32_t>
         constexpr T stoi(const char* str) {
-            if (*str == '-') {
-                ++str;
-                if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
-                    return stoi_impl<T>(str + 2, 0, true, true);
-                return stoi_impl<T>(str, 0, true);
-            }
-            if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
-                return stoi_impl<T>(str + 2, 0, false, true);
-            return stoi_impl<T>(str);
+            using U = std::make_unsigned_t<T>;
+            const bool negative = *str == '-';
+            if (negative) ++str;
+            const bool hex = str[0] == '0' && (str[1] == 'x' || str[1] == 'X');
+            if (hex) str += 2;
+            U value = 0;
+            for (; hex ? is_hex_digit(*str) : is_digit(*str); ++str)
+                value = value * (hex ? 16 : 10) + static_cast<U>(get_bits(*str));
+            return static_cast<T>(negative ? U(0) - value : value);
         }
 
         // Masked compare, 8 bytes at a time (memcpy keeps unaligned loads legal; compilers emit a single mov)
@@ -123,9 +114,9 @@ namespace patterns {
             return true;
         }
 
-        // The byte pattern syntax ("48 8B ? X4 ? ? ? ? /d"). Calls byte(index, text) for each byte (text at its two hex
-        // digits or '?'), x(index, len_text) for the X marker (len_text at the digits after X, or nullptr) and
-        // flags(text) for the text after '/'. Returns the number of bytes
+        // The byte pattern syntax ("48 8B ? X4 ? ? ? ? /d"). Calls byte(index, hi, lo) for each byte (its two characters:
+        // hex digits or '?'; lo is '\0' past the end), x(index, len_text) for the X marker (len_text at the digits after
+        // X, or nullptr) and flags(text) for the text after '/'. Returns the number of bytes
         template <class Byte, class X, class Flags>
         constexpr size_t parse_bytes(const char* p, size_t len, Byte&& byte, X&& x, Flags&& flags) {
             size_t n = 0;
@@ -142,7 +133,7 @@ namespace patterns {
                     break;
                 }
                 else if (c != ' ')
-                    byte(n++, &p[i]);
+                    byte(n++, c, i + 1 < len ? p[i + 1] : '\0');
                 else --i;
             }
             return n;
@@ -203,102 +194,47 @@ namespace patterns {
             return false;
         }
 
-        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/LDRH--immediate---Load-Register-Halfword--immediate--
-        inline bool a64_decode_ldrh(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
-            // rn - name of general-purpose base register or stack pointer
-            // rt - name of general-purpose base register to be transfered
-            // Post-index & Pre-index masks
-            // 0111 1000 010? ???? ???? x1?? ???? ????
-            //                          1 - pre-index
-            //                          0 - post-index
-            if (decode_masked_match(insn, 0b1111'1111'1110'0000'0000'0100'0000'0000, 0b0111'1000'0100'0000'0000'0100'0000'0000)) {
-                *offset = extract_bitfield<int32_t>(insn, 9, 12);
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
-                return true;
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Index-by-Encoding/Loads-and-Stores
+        // Single general-purpose register loads/stores with an immediate offset (LDR/STR/LDRB/LDRH/LDRSW... and the
+        // LDUR/STUR forms). *offset is signed; *post_index is set for [Rn],#imm, which accesses Rn itself
+        inline bool a64_decode_load_store(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset, bool* post_index = nullptr) {
+            // size 111 0 01 opc imm12 Rn Rt: unsigned offset, scaled by the access size
+            if (decode_masked_match(insn, 0x3F000000, 0x39000000)) {
+                *offset = static_cast<int64_t>(extract_bitfield<uint32_t>(insn, 12, 10)) << (insn >> 30);
+                if (post_index) *post_index = false;
             }
-            // Unsigned offset mask
-            // 0111 1001 01?? ???? ???? ???? ???? ????
-            if (decode_masked_match(insn, 0b1111'1111'1100'0000'0000'0000'0000'0000, 0b0111'1001'0100'0000'0000'0000'0000'0000)) {
-                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << 1;
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
+            // size 111 0 00 opc 0 imm9 mode Rn Rt: unscaled (00), post-index (01), unprivileged (10), pre-index (11)
+            else if (decode_masked_match(insn, 0x3F200000, 0x38000000)) {
+                *offset = extract_bitfield<int32_t>(insn, 9, 12);
+                if (post_index) *post_index = ((insn >> 10) & 3) == 1;
+            }
+            else return false;
+            if (rn) *rn = (insn >> 5) & 0x1f;
+            if (rt) *rt = insn & 0x1f;
+            return true;
+        }
+
+        // B.cond, CBZ/CBNZ and LDR (literal): a PC-relative imm19
+        inline bool a64_decode_imm19(uint32_t insn, int64_t* offset) {
+            if (decode_masked_match(insn, 0xFF000010, 0x54000000) || decode_masked_match(insn, 0x7E000000, 0x34000000)
+                || decode_masked_match(insn, 0x3F000000, 0x18000000)) {
+                *offset = static_cast<int64_t>(extract_bitfield<int32_t>(insn, 19, 5)) * 4;
                 return true;
             }
             return false;
         }
-
-        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/LDR--immediate---Load-Register--immediate--
-        inline bool a64_decode_ldr(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
-            // rn - name of general-purpose base register or stack pointer
-            // rt - name of general-purpose register to be transferred
-            // Post-index & Pre-index masks
-            // 1x11 1000 010? ???? ???? x1?? ???? ????
-            //  1 - 64 bit              1 - pre-index
-            //  0 - 32 bit              0 - post-index
-            if (decode_masked_match(insn, 0b1011'1111'1110'0000'0000'0100'0000'0000, 0b1011'1000'0100'0000'0000'0100'0000'0000)) {
-                // Have not tested this yet
-                *offset = extract_bitfield<int32_t>(insn, 9, 12);
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
-                return true;
-            }
-            // Unsigned offset mask
-            // 1x11 1001 01?? ???? ???? ???? ???? ????
-            //  1 - 64 bit
-            //  0 - 32 bit
-            if (decode_masked_match(insn, 0b1011'1011'1100'0000'0000'0000'0000'0000, 0b1011'1001'0100'0000'0000'0000'0000'0000)) {
-                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << (insn >> 30);
-                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
-                //auto vr = (insn >> 26) & 1;
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
-                return true;
-            }
-            return false;
-        }
-
-        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/STR--immediate---Store-Register--immediate--
-        inline bool a64_decode_str(uint32_t insn, unsigned* rn, unsigned* rt, int64_t* offset) {
-            // rn - name of general-purpose base register or stack pointer
-            // rt - name of general-purpose register to be transferred
-            // Post-index & Pre-index masks
-            // 1x11 1000 000? ???? ???? x1?? ???? ????
-            //  1 - 64 bit              1 - pre-index
-            //  0 - 32 bit              0 - post-index
-            if (decode_masked_match(insn, 0b1011'1011'1110'0000'0000'0100'0000'0000, 0b1011'1000'0000'0000'0000'0100'0000'0000)) {
-                *offset = extract_bitfield<int32_t>(insn, 9, 12);
-                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
-                //auto vr = (insn >> 26) & 1;
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
-                return true;
-            }
-            // Unsigned offset mask
-            // 1x11 1000 000? ???? ???? ???? ???? ????
-            //  1 - 64 bit
-            //  0 - 32 bit
-            if (decode_masked_match(insn, 0b1011'1011'1110'0000'0000'0000'0000'0000, 0b1011'1001'0000'0000'0000'0000'0000'0000)) {
-                *offset = extract_bitfield<uint32_t>(insn, 12, 10) << (insn >> 30);
-                // bit 26 annotated as "VR" - Variant Register (Not sure it's use yet)
-                //auto vr = (insn >> 26) & 1;
-                if (rn) *rn = (insn >> 5) & 0x1f;
-                if (rt) *rt = insn & 0x1f;
-                return true;
-            }
-            return false;
-        } 
 
         // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/MOVZ--Move-wide-with-zero-
+        // https://developer.arm.com/documentation/ddi0602/2023-12/Base-Instructions/MOVN--Move-wide-with-NOT-
         inline bool a64_decode_movz(uint32_t insn, unsigned* sf, unsigned* rd, int64_t* offset) {
             // sf - 1 for 64 bit, 0 for 32 bit
             // rd - destination register
-            // x101 0010 1xx? ???? ???? ???? ???? ????
-            // 1 = 64 bit 0x - shift ammount
-            // 0 = 32 bit
-            if (decode_masked_match(insn, 0b0111'1111'1000'0000'0000'0000'0000'0000, 0b0101'0010'1000'0000'0000'0000'0000'0000)) {
-                auto hw = (insn >> 21) & 3;
-                *offset = hw ? extract_bitfield<uint32_t>(insn, 16, 5) << hw : extract_bitfield<uint32_t>(insn, 16, 5);
+            // sx01 0010 1hh? ???? ???? ???? ???? ????
+            // s: 1 = 64 bit, 0 = 32 bit. x: 1 = MOVZ, 0 = MOVN (bit 29 clear excludes MOVK). hh: shift / 16
+            if (decode_masked_match(insn, 0b0011'1111'1000'0000'0000'0000'0000'0000, 0b0001'0010'1000'0000'0000'0000'0000'0000)) {
+                const auto hw = (insn >> 21) & 3;
+                const uint64_t imm = static_cast<uint64_t>(extract_bitfield<uint32_t>(insn, 16, 5)) << (hw * 16);
+                *offset = static_cast<int64_t>((insn >> 30) & 1 ? imm : ~imm);
                 if (sf) *sf = (insn >> 31) & 0x1;
                 if (rd) *rd = insn & 0x1f;
                 return true;
@@ -409,9 +345,10 @@ namespace patterns {
         template <class Emit>
         constexpr size_t parse(const char* p, size_t len, Emit&& emit) {
             return detail::parse_bytes(p, len,
-                [&](size_t n, const char* c) {
-                    if (*c == '?') emit(n, uint8_t(0), uint8_t(0));
-                    else emit(n, value(c), uint8_t(0xFF));
+                [&](size_t n, char hi, char lo) {
+                    // A lone ? (or ??) is a whole byte; a ? next to a hex digit is a nibble ("4?", "?8")
+                    if (hi == '?' && lo != '?' && !detail::is_hex_digit(lo)) lo = '?';
+                    emit(n, uint8_t(nibble(hi) << 4 | nibble(lo)), uint8_t((hi == '?' ? 0 : 0xF0) | (lo == '?' ? 0 : 0x0F)));
                 },
                 [&](size_t n, const char* len_text) {
                     offset_ = static_cast<uint32_t>(n);
@@ -507,10 +444,11 @@ namespace patterns {
             return nullptr;
         }
         // Credits to EJT for the helper functions here!
-        constexpr __forceinline uint8_t value(const char* c) const {
-            if (!detail::is_hex_digit(c[0]) || !detail::is_hex_digit(c[1]))
+        static constexpr uint8_t nibble(char c) {
+            if (c == '?') return 0;
+            if (!detail::is_hex_digit(c))
                 throw std::logic_error("Invalid hex byte in pattern!");
-            return (detail::get_bits(c[0]) << 4 | detail::get_bits(c[1]));
+            return static_cast<uint8_t>(detail::get_bits(c));
         }
         constexpr void handle_options(const char* ptr) {
             const bool arm64 = arch_ == arch::arm64;
@@ -548,9 +486,12 @@ namespace patterns {
                     auto saved_rd = rd;
                     auto curr_insn = insn + 1;
                     if (is_adrp) {
-                        // Follow the instructions after ADRP, never reading past the end of the scanned buffer
-                        while (reinterpret_cast<const uint8_t*>(curr_insn + 1) <= end && *curr_insn) {
+                        // Follow the instructions after ADRP, never reading past the end of the scanned buffer.
+                        // Instructions that leave the register alone (NOP, another ADRP, unrelated ADD/MOVZ/loads/
+                        // stores; compilers interleave them) are skipped; anything else ends the chain
+                        for (; reinterpret_cast<const uint8_t*>(curr_insn + 1) <= end && *curr_insn; ++curr_insn) {
                             unsigned rt = 0;
+                            bool post_index = false;
                             if (detail::a64_decode_arithmetic(*curr_insn, &is_sub, &sf, &rd, &rn, &offset)) {
                                 // ADD may write a different register (ADRP X8 / ADD X0, X8, #lo); keep following that one
                                 if (rn == saved_rd) {
@@ -558,29 +499,33 @@ namespace patterns {
                                     if (is_sub) saved_offset -= val;
                                     else saved_offset += val;
                                     saved_rd = rd;
-                                    ++curr_insn;
                                     continue;
                                 }
-                            // Placing this here for sneaky programs that want to put nops in between ADRL
-                            } else if (detail::a64_decode_nop(*curr_insn)) {
-                                ++curr_insn;
-                                continue;
-                            } else if (detail::a64_decode_ldr(*curr_insn, &rn, &rt, &offset) 
-                                    || detail::a64_decode_ldrh(*curr_insn, &rn, &rt, &offset)
-                                    || detail::a64_decode_str(*curr_insn, &rn, &rt, &offset)) {
-                                if (saved_rd == rn) {
-                                    saved_offset += (offset < 0 ? -offset : offset);
-                                }
+                                if (rd == saved_rd) break;
                             }
-                            break;
+                            else if (detail::a64_decode_load_store(*curr_insn, &rn, &rt, &offset, &post_index)) {
+                                // The address it accesses; [Rn],#imm accesses Rn and only then adds
+                                if (rn == saved_rd) {
+                                    if (!post_index) saved_offset += offset;
+                                    break;
+                                }
+                                if (rt == saved_rd) break;
+                            }
+                            else if (detail::a64_decode_adr(*curr_insn, nullptr, &rd, &offset)
+                                    || detail::a64_decode_movz(*curr_insn, nullptr, &rd, &offset)) {
+                                if (rd == saved_rd) break;
+                            }
+                            else if (!detail::a64_decode_nop(*curr_insn))
+                                break;
                         }
                     }
                     const auto from_addr = is_adrp ? reinterpret_cast<uintptr_t>(insn) & ~0xfff : reinterpret_cast<uintptr_t>(insn);
                     return reinterpret_cast<void*>(from_addr + saved_offset);
                 }
-                else if (detail::a64_decode_ldr(*insn, nullptr, nullptr, &offset) 
-                        || detail::a64_decode_ldrh(*insn, nullptr, nullptr, &offset)
-                        || detail::a64_decode_str(*insn, nullptr, nullptr, &offset)) {
+                else if (detail::a64_decode_imm19(*insn, &offset)) {
+                    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(insn) + offset);
+                }
+                else if (detail::a64_decode_load_store(*insn, nullptr, nullptr, &offset)) {
                     if (is_value) *is_value = true;
                     return reinterpret_cast<void*>(offset);
                 }
@@ -608,17 +553,24 @@ namespace patterns {
             }
             return nullptr;
         }
+        // memcpy: operands in x86 code are rarely aligned for their type
+        template <typename T>
+        static intptr_t read_signed(const uint8_t* ptr) {
+            T v;
+            memcpy(&v, ptr, sizeof v);
+            return static_cast<intptr_t>(v);
+        }
         intptr_t relative_value(uint8_t* ptr) const {
             switch (size_) {
             case 1:
-                return static_cast<intptr_t>(*reinterpret_cast<int8_t*>(ptr));
+                return read_signed<int8_t>(ptr);
             case 2:
-                return static_cast<intptr_t>(*reinterpret_cast<int16_t*>(ptr));
+                return read_signed<int16_t>(ptr);
             case 4:
-                return static_cast<intptr_t>(*reinterpret_cast<int32_t*>(ptr));
+                return read_signed<int32_t>(ptr);
 #if UINTPTR_MAX > 0xFFFFFFFF
             case 8:
-                return static_cast<intptr_t>(*reinterpret_cast<int64_t*>(ptr));
+                return read_signed<int64_t>(ptr);
 #endif
             }
             // Should never hit here

@@ -46,6 +46,24 @@ static void edge_cases() {
     try { "48 8G"_rtpattern; } catch (const std::logic_error&) { threw = true; }
     CHECK(threw);                                                                 // invalid hex rejected
     { const char s[] = "48 8B X4"; patterns::RuntimePattern rp(s, 8); CHECK(rp.length() == 2); }   // X at the end, no overrun
+    // Wildcards: ? and ?? are a whole byte, ? beside a hex digit a nibble
+    {
+        const patterns::RuntimePattern w("? ?? 4? ?8 4F");
+        const uint8_t pat[] = { 0, 0, 0x40, 0x08, 0x4F }, msk[] = { 0, 0, 0xF0, 0x0F, 0xFF };
+        CHECK(w.length() == 5 && !memcmp(w.pattern(), pat, 5) && !memcmp(w.mask(), msk, 5));
+        constexpr auto ct = COMPILETIME_PATTERN("? ?? 4? ?8 4F");
+        CHECK(ct.length() == 5 && !memcmp(ct.pattern(), pat, 5) && !memcmp(ct.mask(), msk, 5));
+        const auto x = XOR_PATTERN("? ?? 4? ?8 4F");
+        for (size_t i = 0; i < 5; ++i) CHECK(x[i] == pat[i] && x.unmask(i) == msk[i]);
+        const uint8_t hit[] = { 0x11, 0x22, 0x4A, 0xB8, 0x4F }, miss[] = { 0x11, 0x22, 0x5A, 0xB8, 0x4F };
+        CHECK(w.find<const uint8_t*>(hit, 5) == hit && x.find<const uint8_t*>(hit, 5) == hit);
+        CHECK(!w.find<void*>(miss, 5) && !x.find<void*>(miss, 5));
+        const char s[] = "48 ?"; patterns::RuntimePattern rp(s, 4);   // trailing ?, not terminated
+        CHECK(rp.length() == 2 && rp.mask()[1] == 0);
+        threw = false;
+        try { "4G ?"_rtpattern; } catch (const std::logic_error&) { threw = true; }
+        CHECK(threw);
+    }
 
     // X offset, /r (relative value) and /d (rip-relative deref) on a call: E8 <rel32>
     alignas(8) uint8_t code[16] = { 0x90, 0xE8, 0x10, 0x00, 0x00, 0x00, 0xC3 };

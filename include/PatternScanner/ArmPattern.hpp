@@ -101,6 +101,15 @@ namespace patterns {
             return 0xFFFFFFFF;
         }
 
+        // 1 for a 64-bit register (X, SP, XZR), 0 for 32-bit (W, WSP, WZR), -1 when unknown ("?")
+        constexpr int register_width(const char* token) {
+            return token[0] == 'X' || str_eq(token, "SP") ? 1 : token[0] == 'W' ? 0 : -1;
+        }
+
+        constexpr bool is_sp(const char* token) {
+            return str_eq(token, "SP") || str_eq(token, "WSP");
+        }
+
         template <size_t N>
         constexpr void parse_register(char(&buffer)[N], uint32_t mask, uint32_t shift, ArmOpcode& base) {
             if (auto val = parse_register(buffer); val != 0xFFFFFFFF)
@@ -240,10 +249,9 @@ namespace patterns {
             char imm[24] = {};
             i = parse_imm_token(instr, skip_char(instr, i, '#'), imm);
             if (!(imm[0] == '?' && imm[1] == '\0')) {
-                if (int64_t offset = stoi<int64_t>(imm); offset != -1) {
-                    if ((base.pattern >> 31) & 1) offset >>= 12;
-                    base.set_bits(static_cast<uint32_t>((offset << 24) | ((offset >> 2) & 0x7FFFF)), (3 << 24 | 0x7FFFF), 5);
-                }
+                int64_t offset = stoi<int64_t>(imm);
+                if ((base.pattern >> 31) & 1) offset >>= 12;
+                base.set_bits(static_cast<uint32_t>((offset << 24) | ((offset >> 2) & 0x7FFFF)), (3 << 24 | 0x7FFFF), 5);
             }
             return base;
         }
@@ -356,13 +364,14 @@ namespace patterns {
         constexpr ArmOpcode parse_orr(const char* instr, ArmOpcode base) {
             size_t i = skip_whitespace(instr, skip_mnemonic(instr));
 
-            char rd[5] = {}/*, rn[5] = {}*/;
+            char rd[5] = {}, rn[5] = {};
             i = parse_register(instr, parse_token(instr, i, rd), rd, 0x1F, 0, base, ',');
-            if (rd[0] != '?') base.set_bits((rd[0] == 'W' ? 0 : 1), 1, 31);
-
             // Rn
-            i = parse_register(instr, i, 0x1F, 5, base, ',');
-            
+            i = parse_register(instr, parse_token(instr, i, rn), rn, 0x1F, 5, base, ',');
+            // Width from Rd, or from Rn when Rd is "?"
+            const int width = register_width(rd) >= 0 ? register_width(rd) : register_width(rn);
+            if (width >= 0) base.set_bits(static_cast<uint32_t>(width), 1, 31);
+
             if (instr[i] == '#') {
                 base.set_bits((2 << 4), (3 << 4 | 1), 23);
 
@@ -371,8 +380,8 @@ namespace patterns {
                 if (imm[0] != '?') {
                     uint64_t immVal = stoi<uint64_t>(imm);
                     // Unknown width (Rd is "?"): a value that fits in 32 bits can be either, and the two only differ in N
-                    const bool is64 = rd[0] == 'X' || (rd[0] != 'W' && immVal > 0xFFFFFFFFULL);
-                    const uint32_t n_mask = (rd[0] == 'X' || rd[0] == 'W' || is64) ? 1 : 0;
+                    const bool is64 = width == 1 || (width < 0 && immVal > 0xFFFFFFFFULL);
+                    const uint32_t n_mask = (width >= 0 || is64) ? 1 : 0;
                     auto [ ok, N, imms, immr ] = encode_bitmask_immediate(immVal, is64);
                     if (ok) base.set_bits((N << 12 | immr << 6 | imms), (n_mask << 12 | 0x3F << 6 | 0x3F), 10);
                 }
@@ -391,7 +400,7 @@ namespace patterns {
                 else if (starts_with(&instr[i], "ROR")) { base.set_bits(3, 3, 22); i += 3; }
                 else base.set_bits(0, 3, 22);
 
-                i = skip_whitespace(instr, skip_char(instr, i, '#'));
+                i = skip_char(instr, skip_whitespace(instr, i), '#');
                 if (instr[i] != '?') base.set_bits(stoi(&instr[i]), 0x3F, 10);
 
             } else {
@@ -404,30 +413,43 @@ namespace patterns {
         constexpr ArmOpcode parse_arithmetic(const char* instr, ArmOpcode base) {
             size_t i = skip_whitespace(instr, skip_mnemonic(instr));
 
-            char rd[5] = {};
+            char rd[5] = {}, rn[5] = {};
             i = parse_register(instr, parse_token(instr, i, rd), rd, 0x1F, 0, base, ',');
-            if (rd[0] != '?') base.set_bits((rd[0] == 'W' ? 0b0 : 0b1), 1, 31);
-
             // Rn
-            i = parse_register(instr, i, 0x1F, 5, base, ',');
+            i = parse_register(instr, parse_token(instr, i, rn), rn, 0x1F, 5, base, ',');
+            // Width from Rd, or from Rn when Rd is "?"
+            const int width = register_width(rd) >= 0 ? register_width(rd) : register_width(rn);
+            if (width >= 0) base.set_bits(static_cast<uint32_t>(width), 1, 31);
 
             if (instr[i] == '#') {
                 base.set_bits((2 << 4 | 2), (3 << 4 | 7), 23);
                 char imm[24] = {};
-                i = parse_imm_token(instr, i, imm);
-                if (imm[0] != '?') base.set_bits(stoi(imm), 0xFFF, 10);
-
+                i = skip_whitespace(instr, parse_imm_token(instr, i, imm));
+                int sh = -1;   // LSL #12 (1) or #0 (0) when written, -1 if not or #?
                 if (instr[i] == ',') {
-                    i = skip_whitespace(instr, i+1);
+                    i = skip_whitespace(instr, i + 1);
                     if (starts_with(&instr[i], "LSL")) {
                         i = skip_char(instr, skip_whitespace(instr, i + 3), '#');
-                        if (instr[i] != '?') base.set_bits(stoi(&instr[i]) == 12 ? 1 : 0, 1, 22);
+                        if (instr[i] != '?') sh = stoi(&instr[i]) == 12 ? 1 : 0;
                     }
-                } else {
-                    base.set_mask(1, 22);
                 }
+                if (imm[0] != '?') {
+                    int64_t val = stoi<int64_t>(imm);
+                    // As assemblers do: a negative immediate is the opposite operation (ADD #-8 is SUB #8, CMP #-1
+                    // is CMN #1), and a multiple of 0x1000 the shifted form (#0x1000 is #1, LSL #12)
+                    if (val < 0) { base.pattern ^= 1u << 30; val = -val; }
+                    if (sh < 0 && val > 0xFFF && !(val & 0xFFF)) { sh = 1; val >>= 12; }
+                    if (val > 0xFFF) return { 0, 0 };
+                    base.set_bits(static_cast<uint32_t>(val), 0xFFF, 10);
+                    if (sh < 0) sh = 0;
+                }
+                if (sh >= 0) base.set_bits(static_cast<uint32_t>(sh), 1, 22);
                 return base;
             }
+
+            // With SP as Rd or Rn only the extended register form exists: assemblers write LSL as UXTX (UXTW for W)
+            const bool sp = is_sp(rd) || is_sp(rn);
+            const uint32_t sp_extend = str_eq(rd, "WSP") || str_eq(rn, "WSP") ? 2 : 3;
 
             base.set_bits(5, 0xF, 25);
             // Rm
@@ -436,7 +458,8 @@ namespace patterns {
             if (instr[i] == ',') {
                 i = skip_whitespace(instr, i + 1);
                 bool shifted = false, extended = false;
-                if      (starts_with(&instr[i], "LSL"))  { base.set_bits(0, 7, 21); shifted = true;  i += 3; }
+                if      (starts_with(&instr[i], "LSL") && sp) { base.set_bits(sp_extend, 7, 13); extended = true; i += 3; }
+                else if (starts_with(&instr[i], "LSL"))  { base.set_bits(0, 7, 21); shifted = true;  i += 3; }
                 else if (starts_with(&instr[i], "LSR"))  { base.set_bits(2, 7, 21); shifted = true;  i += 3; }
                 else if (starts_with(&instr[i], "ASR"))  { base.set_bits(4, 7, 21); shifted = true;  i += 3; }
                 else if (starts_with(&instr[i], "UXTB")) { base.set_bits(0, 7, 13); extended = true; i += 4; }
@@ -471,6 +494,8 @@ namespace patterns {
                         base.set_bits((1 << 11), (7 << 11 | 7), 10);
                     }
                 }
+            } else if (sp) {
+                base.set_bits((1 << 11 | sp_extend << 3), (7 << 11 | 0x3F), 10);
             } else {
                 base.set_bits(0, (7 << 11 | 0x3F), 10);
             }
@@ -483,12 +508,13 @@ namespace patterns {
             char rt1[5] = {};
             i = parse_register(instr, parse_token(instr, i, rt1), rt1, 0x1F, 0, base, ',');
             if (rt1[0] != 'W' && rt1[0] != 'X' && rt1[0] != '?') return { 0, 0 };   // FP/SIMD pairs aren't supported
-            bool know_size = rt1[0] != '?';
-            uint32_t size_bits = know_size ? (rt1[0] == 'W' ? 0b0 : 0b1) : 0;
+            char rt2[5] = {};
+            i = parse_register(instr, parse_token(instr, i, rt2), rt2, 0x1F, 10, base, ',');
+            // Width from Rt1, or from Rt2 when Rt1 is "?"
+            const int width = register_width(rt1) >= 0 ? register_width(rt1) : register_width(rt2);
+            const bool know_size = width >= 0;
+            const uint32_t size_bits = know_size ? static_cast<uint32_t>(width) : 0;
             if (know_size) base.set_bits(size_bits, 1, 31);
-
-            // Rt2
-            i = parse_register(instr, i, 0x1F, 10, base, ',');
 
             if (instr[i] != '[') return base;
             i = skip_whitespace(instr, skip_char(instr, i, '['));
@@ -496,12 +522,11 @@ namespace patterns {
             // Rn
             i = parse_register(instr, i, 0x1F, 5, base, ',');
 
-            bool post_index = false, signed_offset = false, pre_index = false;
+            // [Rn] alone is the signed offset form with offset 0 (imm stays empty, which reads as 0)
+            bool post_index = false, pre_index = false;
             char imm[24] = {};
-            if (instr[i] == '#') {
+            if (instr[i] == '#')
                 i = skip_whitespace(instr, parse_imm_token(instr, i, imm));
-                signed_offset = true;
-            }
             if (instr[i] == ']') {
                 i = skip_whitespace(instr, skip_char(instr, skip_char(instr, i, ']'), ','));
                 if (instr[i] == '!') {
@@ -511,7 +536,6 @@ namespace patterns {
                     i = parse_imm_token(instr, i, imm);
                 }
             }
-            if (!(post_index || pre_index || signed_offset)) return base;
             base.set_bits((post_index    ? 0b0010100011 :
                            pre_index     ? 0b0010100111 :
                                            0b0010100101), 0x1FF, 22);
@@ -552,7 +576,7 @@ namespace patterns {
                 char imm[24] = {};
                 parse_imm_token(instr, i, imm);
                 if (imm[0] == '?') {
-                    op.set_bits(0x12800000, 0x1F800000);   // MOVZ or MOVN: opc (bits 29-30) left open
+                    op.set_bits(0x12800000, 0x3F800000);   // MOVZ or MOVN: bit 30 of opc left open, bit 29 clear (not MOVK)
                     return op;
                 }
                 const unsigned width = is64 ? 64 : 32;
@@ -775,7 +799,7 @@ namespace patterns {
                 if (text[0] == '/') break;
                 if (!text[0]) continue;
                 size_t start = 0;
-                if (text[0] == 'X') { x(count); start = skip_whitespace(text, 1); }
+                if (text[0] == 'X' && (!text[1] || isspace(text[1]))) { x(count); start = skip_whitespace(text, 1); }
                 line(count++, &text[start]);
             }
             return count;
