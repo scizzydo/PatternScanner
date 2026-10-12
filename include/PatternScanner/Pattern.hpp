@@ -516,7 +516,8 @@ namespace patterns {
                                     if (!post_index) saved_offset += offset;
                                     break;
                                 }
-                                if (rt == saved_rd) break;
+                                // Only a load into a general-purpose register (V clear, opc not 00) overwrites it
+                                if (rt == saved_rd && !(*curr_insn >> 26 & 1) && (*curr_insn >> 22 & 3)) break;
                             }
                             else if (detail::a64_decode_adr(*curr_insn, nullptr, &rd, &offset)
                                     || detail::a64_decode_movz(*curr_insn, nullptr, &rd, &offset)) {

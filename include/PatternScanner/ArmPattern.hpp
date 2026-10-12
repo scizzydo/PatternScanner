@@ -82,6 +82,13 @@ namespace patterns {
             }
         };
 
+        // Matches what either encoding matches: the bits they share. One with mask 0 (the operands don't fit it) drops out
+        constexpr ArmOpcode either(ArmOpcode a, ArmOpcode b) {
+            if (!a.mask || !b.mask) return a.mask ? a : b;
+            const uint32_t m = a.mask & b.mask & ~(a.pattern ^ b.pattern);
+            return { a.pattern & m, m };
+        }
+
         struct InstructionDescriptor {
             const char* mnemonic;
             ArmOpcode opcode;
@@ -330,6 +337,20 @@ namespace patterns {
 
             char rt[5] = {}, imm[24] = {};
             i = parse_register(instr, parse_token(instr, i, rt), rt, 0x1F, 0, base, ',');
+            if (scale < 0 && str_eq(rt, "?")) {
+                // W or X: the offset's scaling and form (LDR or LDUR) depend on which, so encode both
+                const size_t at = skip_whitespace(instr, skip_mnemonic(instr));
+                char w[max_line + 8] = {}, x[max_line + 8] = {};
+                for (size_t s = 0, j = 0; instr[s]; ++s, ++j) {
+                    w[j] = x[j] = instr[s];
+                    if (s == at) { w[j] = 'W'; x[j] = 'X'; ++j; w[j] = x[j] = '0'; }
+                }
+                ArmOpcode e = either(parse_load_store<op_int, scale, unscaled, sign_extend>(w, {}),
+                                     parse_load_store<op_int, scale, unscaled, sign_extend>(x, {}));
+                e.pattern &= ~0x1Fu;
+                e.mask &= ~0x1Fu;
+                return e;
+            }
             const int fp = scale < 0 ? fp_size(rt) : -1;
             if (rt[0] != 'W' && rt[0] != 'X' && rt[0] != '?' && fp < 0) return { 0, 0 };
             int size = scale;
@@ -353,7 +374,7 @@ namespace patterns {
             i = parse_register(instr, i, 0x1F, 5, base);
 
             bool is_register_offset = false, is_pre_index = false, is_post_index = false;
-            uint32_t option_val = 0b011, s_val = 0, s_mask = 1;
+            uint32_t option_val = 0b011, option_mask = 0b111, s_val = 0, s_mask = 1;
 
             if (instr[i] == ',') {
                 i = skip_whitespace(instr, ++i);
@@ -364,7 +385,9 @@ namespace patterns {
                     i = parse_register(instr, i, 0x1F, 16, base, ',');
                     is_register_offset = true;
 
-                    if      (starts_with(&instr[i], "LSL"))  { option_val = 0b011; i += 3; }
+                    // "?": any extend, and any amount unless one follows
+                    if      (instr[i] == '?')                { option_mask = 0; s_mask = 0; ++i; }
+                    else if (starts_with(&instr[i], "LSL"))  { option_val = 0b011; i += 3; }
                     else if (starts_with(&instr[i], "UXTW")) { option_val = 0b010; i += 4; }
                     else if (starts_with(&instr[i], "SXTW")) { option_val = 0b110; i += 4; }
                     else if (starts_with(&instr[i], "SXTX")) { option_val = 0b111; i += 4; }
@@ -372,6 +395,7 @@ namespace patterns {
                     i = skip_whitespace(instr, skip_char(instr, i, ','));
                     if (instr[i] == '#') {
                         // For bytes an explicit #0 is the shifted form; for the rest the amount is 0 or the scale
+                        s_mask = 1;
                         if (instr[++i] == '?') s_mask = 0;
                         else s_val = (size == 0 || stoi(&instr[i]) != 0) ? 1 : 0;
                     }
@@ -407,7 +431,7 @@ namespace patterns {
             const uint32_t form = is_register_offset ? 0x00200800 : is_pre_index ? 0xC00 : is_post_index ? 0x400 : 0;
             base.set_bits((op & ~0x01000000u) | form, 0xFFE00C00 & width_mask);
             if (is_register_offset) {
-                base.set_bits(option_val << 1 | s_val, 0xE | s_mask, 12);
+                base.set_bits(option_val << 1 | s_val, option_mask << 1 | s_mask, 12);
             } else if (known_imm) {
                 if (val < -256 || val > 255) return { 0, 0 };
                 base.set_bits(val, 0x1FF, 12);
@@ -989,15 +1013,8 @@ namespace patterns {
             };
 
             // A valid encoding always has sf/N in its mask; mask 0 means the size doesn't fit
-            ArmOpcode e = encode(width == 0 ? 32 : 64);
-            if (width < 0) {
-                const ArmOpcode e32 = encode(32), e64 = encode(64);
-                const uint32_t m = e32.mask & e64.mask & ~(e32.pattern ^ e64.pattern);
-                if (!e32.mask && !e64.mask) return { 0, 0 };
-                e = e32.mask && e64.mask ? ArmOpcode{ e32.pattern & m, m } : e32.mask ? e32 : e64;
-            } else if (!e.mask) {
-                return { 0, 0 };
-            }
+            const ArmOpcode e = width < 0 ? either(encode(32), encode(64)) : encode(width == 0 ? 32 : 64);
+            if (!e.mask) return { 0, 0 };
             base.set_bits(e.pattern, e.mask);
             return base;
         }

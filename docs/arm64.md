@@ -14,6 +14,7 @@ One instruction per line; case, indentation and spacing don't matter, so lines p
 - A register letter pins the width; a bare `?` leaves it open, along with what depends on it (scaled offsets, bitfield immr/imms, TBZ's bit 5). Where only one width fits the other operands (`LSL ?, ?, #40`), that one is used.
 - In loads and stores a bare `?` register is W or X; write `B?`/`H?`/`S?`/`D?`/`Q?` for floating-point/SIMD ones.
 - Some wildcards can't be expressed with a mask and match more than the alias: `LSL Rd, Rn, #?` matches any `UBFM` (also `LSR`, `UBFX`...), and aliases that repeat a register (`CINC X?, X?, cond`, `ROR X?, X?, #n`) can't require the two to be the same.
+- Others match less, as the encoding they name: `LDR Rt, [Rn,#?]` is the scaled form (write `LDUR` for negative or unaligned offsets, as IDA and lldb print them), and `FMOV Dd, #?` the 8-bit immediate form, not `#0.0` (`FMOV` from the zero register).
 - An operand that can't be encoded (out of range, the wrong register kind, an unknown condition) makes the line a wildcard for those 4 bytes, matching any instruction (the IDA plugin asks before searching with one). It never makes a pattern that can't match. Write `?` for a deliberate one.
 
 ## Supported instructions

@@ -502,6 +502,16 @@
     X("LDR X?, [X29,#-8]",       "LDUR X3, [X29,#-8]",          0xF85F83A3, 1) \
     X("LDR ?, [X29,#-8]",        "LDUR W0, [X29,#-8]",          0xB85F83A0, 1) \
     X("LDR ?, [X29,#-8]",        "LDR X0, [X29,#8]",            0xF94007A0, 0) \
+    X("LDR ?, [X1,#0x81]",       "LDUR W0, [X1,#0x81]",         0xB8481020, 1) \
+    X("LDR ?, [X1,#0x81]",       "LDUR X0, [X1,#0x81]",         0xF8481020, 1) \
+    X("LDR ?, [X1,#0xC]",        "LDR W0, [X1,#0xC]",           0xB9400C20, 1) \
+    X("LDR ?, [X1,#0xC]",        "LDUR X0, [X1,#0xC]",          0xF840C020, 1) \
+    X("LDR ?, [X1,#0xC]",        "STR W0, [X1,#0xC]",           0xB9000C20, 0) \
+    X("LDR ?, [X1,#0x4000]",     "LDR X0, [X1,#0x4000]",        0xF9600020, 1) \
+    X("LDR X?, [X?,X?,?]",       "LDR X2, [X3,W4,SXTW]",        0xF864C862, 1) \
+    X("LDR X?, [X?,X?,?]",       "LDR X2, [X3,X4,LSL#3]",       0xF8647862, 1) \
+    X("LDR X?, [X?,X?,? #3]",    "LDR X2, [X3,W4,SXTW#3]",      0xF864D862, 1) \
+    X("LDR X?, [X?,X?,? #3]",    "LDR X2, [X3,X4]",             0xF8646862, 0) \
     X("LDR X?, [X?,X?,LSL#?]",   "LDR X2, [X3,X4]",             0xF8646862, 1) \
     X("LDUR X?, [X?,#?]",        "LDUR X0, [X1,#0x10]",         0xF8410020, 1) \
     X("LDUR X?, [X?,#?]",        "LDR X0, [X1,#0x10]",          0xF9400820, 0) \
@@ -937,6 +947,8 @@ static void deref_synthetic() {
         { { 0xFD400D00, 0 }, 0x18 },         // LDR D0, [X8,#0x18]
         { { 0x3DC00901, 0 }, 0x20 },         // LDR Q1, [X8,#0x20]
         { { 0xBC5FC102, 0 }, -4 },           // LDUR S2, [X8,#-4]
+        { { 0xFD400128, 0x39448D00 }, 0x123 }, // LDR D8, [X9] (not X8); LDRB W0, [X8,#0x123]
+        { { 0xF90003E8, 0x39448D00 }, 0x123 }, // STR X8, [SP]; LDRB W0, [X8,#0x123]
     };
     for (auto& f : follow) {
         alignas(4) uint32_t code[4] = { 0x528EEEE9, 0xB0000028, f.next[0], f.next[1] };   // MOVZ W9; ADRP X8, #0x5000
