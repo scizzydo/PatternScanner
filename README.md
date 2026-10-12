@@ -5,7 +5,11 @@ Header-only. Add `include/` to your include path and include the headers you nee
 #include <PatternScanner/CompileTimePattern.hpp>
 #include <PatternScanner/XORPattern.hpp>
 ```
-(CMake: `target_include_directories(app PRIVATE path/to/PatternScanner/include)`)
+With CMake (C++17 or newer):
+```cmake
+add_subdirectory(path/to/PatternScanner)   # or FetchContent_Declare + FetchContent_MakeAvailable(PatternScanner)
+target_link_libraries(app PRIVATE PatternScanner::PatternScanner)
+```
 
 #### Classes
 - Pattern (base class)
