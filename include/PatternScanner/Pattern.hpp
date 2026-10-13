@@ -29,6 +29,7 @@
 // (-fno-exceptions, kernel code) they call a non-constexpr function instead: still a compile error at compile time,
 // a trap at runtime
 #if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define PATTERNS_EXCEPTIONS 1
 #define PATTERNS_FAIL(msg) throw std::logic_error(msg)
 #else
 #ifdef _MSC_VER

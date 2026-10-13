@@ -131,6 +131,11 @@
     X("TST X0, X1",                  0xEA01001F) \
     X("TST X0, #0x8000000000000000", 0xF241001F) \
     X("AND X0, X1, #0xFF",           0x92401C20) \
+    X("AND W0, W1, #-0x1000",        0x12144C20) \
+    X("BIC X0, X1, #0xFF",           0x9278DC20) \
+    X("BICS W2, W3, #0xF0",          0x72186C62) \
+    X("ORN X4, X5, #0xFFFF0000FFFF0000", 0xB2003CA4) \
+    X("EON W6, W7, #1",              0x521F78E6) \
     X("AND W0, W1, W2",              0x0A020020) \
     X("ANDS X0, X1, X2, LSR#3",      0xEA420C20) \
     X("EOR W0, W1, #0x80000000",     0x52010020) \
@@ -767,47 +772,52 @@ static void wildcards() {
     printf("  wildcard matching ok (%d)\n", n);
 }
 
-// Forms the encoder doesn't support become a whole-word wildcard (mask 0), which the IDA plugin warns about,
-// rather than a pattern that can never match
-static void unsupported() {
-    CHECK(word(ARM_PATTERN("LDR W0, [X1,#0x4000]")).mask == 0);    // past the unsigned offset's range
-    CHECK(word(ARM_PATTERN("LDUR X0, [X1,#0x100]")).mask == 0);    // past imm9
-    CHECK(word(ARM_PATTERN("B.XX #0x10")).mask == 0);
-    CHECK(word(ARM_PATTERN("TBZ W0, #32, #8")).mask == 0);
-    CHECK(word(ARM_PATTERN("TBZ X0, #64, #8")).mask == 0);
-    CHECK(word(ARM_PATTERN("SVC #0x10000")).mask == 0);
-    CHECK(word(ARM_PATTERN("BTI X")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDRAA W0, [X1]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDRAA X0, [X1,#4]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDRAA X0, [X1,#4096]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDRSB D0, [X1]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDRB D0, [X1]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDPSW W0, W1, [X2]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDNP X0, X1, [X2,#16]!")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDP B0, B1, [X2]")).mask == 0);
-    CHECK(word(ARM_PATTERN("LDR B0, #0x10")).mask == 0);
-    CHECK(word(ARM_PATTERN("CSET W0, AL")).mask == 0);
-    CHECK(word(ARM_PATTERN("CINC X0, X1, NV")).mask == 0);
-    CHECK(word(ARM_PATTERN("CSEL X0, X1, X2, XX")).mask == 0);
-    CHECK(word(ARM_PATTERN("CCMP X0, #32, #0, EQ")).mask == 0);
-    CHECK(word(ARM_PATTERN("CCMP X0, #1, #16, EQ")).mask == 0);
-    CHECK(word(ARM_PATTERN("LSL X0, X1, #64")).mask == 0);
-    CHECK(word(ARM_PATTERN("LSL W0, W1, #32")).mask == 0);
-    CHECK(word(ARM_PATTERN("UBFX W0, W1, #30, #4")).mask == 0);
-    CHECK(word(ARM_PATTERN("SXTW W0, W1")).mask == 0);
-    CHECK(word(ARM_PATTERN("UXTB X0, W1")).mask == 0);
-    CHECK(word(ARM_PATTERN("BIC X0, X1, #0xFF")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV D0, #0.1")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV D0, #32.0")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV D0, #-0.0")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV Q0, #1.0")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV S0, X1")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV D0, W1")).mask == 0);
-    CHECK(word(ARM_PATTERN("FMOV D0, S1")).mask == 0);
+// A bad operand (out of range, the wrong register, missing or extra) is an error: a compile error for ArmPattern
+// (tests/CMakeLists.txt checks one), a throw for RuntimeArmPattern. Only an unknown mnemonic becomes a whole-word
+// wildcard (mask 0), which the IDA plugin warns about
+static void bad_operands() {
+    static const char* const bad[] = {
+        // Registers: out of range, not one, the wrong kind or size, SP where 31 is the zero register and back
+        "ADD X0, X1, X32", "ADD X0, X1, X31", "ADD X0, X1, FOO", "ADD X0, W1, X2", "ADD XZR, X1, #1", "ADDS SP, X1, #1",
+        "ADD X0, XZR, X1, UXTX", "ORR SP, X1, X2", "ORR X0, SP, #1", "MOV SP, XZR", "MOV X0, W1", "LDR SP, [X1]",
+        "LDR X0, [XZR]", "LDR X0, [W1]", "LDR X0, [X1, W2]", "LDR X0, [X1, X2, UXTW]", "LDRB X0, [X1]", "LDRSW W0, [X1]",
+        "LDRB D0, [X1]", "LDRSB D0, [X1]", "LDRAA W0, [X1]", "LDR B0, #0x10", "STP X0, W1, [SP]", "STP X0, D1, [SP]",
+        "LDP B0, B1, [X2]", "LDPSW W0, W1, [X2]", "ADR W0, #8", "BR W0", "PACIA X0, XZR", "CSEL X0, X1, W2, EQ",
+        "CCMP X0, W1, #0, EQ", "SXTB X0, X1", "SXTW W0, W1", "UXTB X0, W1", "SMADDL X0, X1, W2, X3",
+        "STXR X0, X1, [X2]", "LDADD W0, X1, [X2]", "LDADDB X0, X1, [X2]", "SWP W0, W1, [XZR]", "FMOV D0, SP",
+        "FMOV S0, X1", "FMOV D0, W1", "FMOV D0, S1",
+        // Immediates: not a number, out of range, unaligned
+        "BL _printf", "B #2", "B #0x8000000", "B.EQ #1", "CBZ X0, #0x100000", "TBZ X0, #3, #0x8000", "LDR X0, #3",
+        "ADR X0, #0x100000", "ADRP X0, #0x100000000", "ADD X0, X1, #0x1001", "ADD X0, X1, #1, LSL #3",
+        "ORR X0, X1, #0", "BIC X0, X1, #-1", "MOV X0, #0x123456789", "MOVZ X0, #0x10000", "MOVZ W0, #1, LSL #32",
+        "MOVZ X0, #1, LSL #8", "LDR W0, [X1,#0x4000]", "LDUR X0, [X1,#0x100]", "LDR X0, [X1, X2, LSL #2]",
+        "STP X0, X1, [SP, #4]", "STP X0, X1, [SP, #0x200]", "LDRAA X0, [X1,#4]", "LDRAA X0, [X1,#4096]",
+        "TBZ W0, #32, #8", "TBZ X0, #64, #8", "TBZ X0, #4294967299, #8", "SVC #0x10000", "SVC #-1",
+        "CCMP X0, #32, #0, EQ", "CCMP X0, #1, #16, EQ", "LSL X0, X1, #64", "LSL W0, W1, #32", "UBFX W0, W1, #30, #4",
+        "FMOV D0, #0.1", "FMOV D0, #32.0", "FMOV D0, #-0.0", "FMOV Q0, #1.0",
+        // Shifts, extends and conditions
+        "ADD X0, X1, X2, ROR #3", "ADD X0, X1, X2, LSL", "CMP SP, X5, LSL", "LDR X0, [X1, X2, ROR #3]", "B.XX #0x10",
+        "CSET W0, AL", "CINC X0, X1, NV", "CSEL X0, X1, X2, XX", "BTI X",
+        // Missing or extra operands, brackets
+        "ADD X0, X1", "ADD X0, X1, X2, X3", "MOV X0", "LDR X0, X1", "LDR X0, [X1, #8", "LDR X0, [X1, #8] junk",
+        "LDUR X0, [X1, #8]!", "LDP X0, X1, [SP]!", "LDNP X0, X1, [X2,#16]!", "STP X0, X1", "BR", "RET X0, X1",
+        "NOP X0", "SVC", "CSEL X0, X1, X2", "LSL X0, X1", "UBFX X0, X1, #3", "MADD X0, X1, X2", "LDXR X0, X1",
+        "LDXR X0, [X1",
+    };
+    int n = 0;
+    for (const char* text : bad) {
+        bool threw = false;
+        try { patterns::RuntimeArmPattern p(text); } catch (const std::logic_error&) { threw = true; }
+        if (!threw) { printf("FAIL %s: accepted\n", text); exit(1); }
+        ++n;
+    }
+    // The error names the line
+    try { patterns::RuntimeArmPattern p("NOP\nADD X0, X1, X32"); } catch (const std::logic_error& e) { CHECK(strstr(e.what(), "(ADD X0, X1, X32)")); }
+    CHECK(word(ARM_PATTERN("FOO X0, X1")).mask == 0);
     CHECK(word(ARM_PATTERN("LDADDX W0, W1, [X2]")).mask == 0);
     CHECK(word(ARM_PATTERN("STADDA W0, [X2]")).mask == 0);
     CHECK(word(ARM_PATTERN("CASP X0, X1, X2, X3, [X4]")).mask == 0);
-    puts("  unsupported forms ok");
+    printf("  bad operands ok (%d)\n", n);
 }
 
 template <class A, class B> static bool same(const A& a, const B& b) {
@@ -827,6 +837,7 @@ static void line_formats() {
     CHECK(same(ARM_PATTERN("ADD X0, X1, #1, LSL#12"), ARM_PATTERN("ADD X0, X1, #1, LSL #12")));
     CHECK(same(ARM_PATTERN("BL #?"), ARM_PATTERN("BL ?")));
     CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP\nRET\n")));
+    CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP ; comment\nRET    ; as IDA and lldb print them")));
     CHECK(ARM_PATTERN("NOP\nRET\n/a").length() == 8);
     puts("  line formats ok");
 }
@@ -1033,7 +1044,7 @@ static void deref_relocated() {
 int main() {
     concrete();
     wildcards();
-    unsupported();
+    bad_operands();
     line_formats();
     prologue();
     runtime_patterns();

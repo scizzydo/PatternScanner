@@ -4,7 +4,7 @@
 
 ## Writing patterns
 
-One instruction per line; case, indentation and spacing don't matter, so lines pasted from IDA (`LDR W8, [X8,#0x18]`) or lldb (`ldr    w8, [x8, #0x18]`) both work. lldb prints ADRP operands as page counts and branch targets as absolute addresses, so wildcard those (`#?`).
+One instruction per line; case, indentation, spacing and `;` comments don't matter, so lines pasted from IDA (`LDR W8, [X8,#0x18]`) or lldb (`ldr    w8, [x8, #0x18]`) both work. lldb prints ADRP operands as page counts and branch targets as absolute addresses, and IDA prints symbols (`BL _printf`, `#off_1000@PAGE`), so wildcard those (`#?`).
 
 ## Wildcards
 
@@ -15,7 +15,10 @@ One instruction per line; case, indentation and spacing don't matter, so lines p
 - In loads and stores a bare `?` register is W or X; write `B?`/`H?`/`S?`/`D?`/`Q?` for floating-point/SIMD ones.
 - Some wildcards can't be expressed with a mask and match more than the alias: `LSL Rd, Rn, #?` matches any `UBFM` (also `LSR`, `UBFX`...), and aliases that repeat a register (`CINC X?, X?, cond`, `ROR X?, X?, #n`) can't require the two to be the same.
 - Others match less, as the encoding they name: `LDR Rt, [Rn,#?]` is the scaled form (write `LDUR` for negative or unaligned offsets, as IDA and lldb print them), and `FMOV Dd, #?` the 8-bit immediate form, not `#0.0` (`FMOV` from the zero register).
-- An operand that can't be encoded (out of range, the wrong register kind, an unknown condition) makes the line a wildcard for those 4 bytes, matching any instruction (the IDA plugin asks before searching with one). It never makes a pattern that can't match. Write `?` for a deliberate one.
+
+## Errors
+
+A bad operand is an error: a compile error for `ArmPattern`/`ArmXORPattern`, a `std::logic_error` naming the line for `RuntimeArmPattern` (a trap without exceptions). That's a typo, a register that doesn't exist (`X31`) or doesn't fit (`SP` where the encoding reads the zero register, `W` mixed with `X`, `D0` in an integer instruction), a value out of range or misaligned for its field, a symbol instead of a number, an unknown shift, extend or condition, and a missing or extra operand.
 
 ## Supported instructions
 
@@ -32,7 +35,7 @@ One instruction per line; case, indentation and spacing don't matter, so lines p
 - Atomics: `CAS`, `SWP`, `LD<op>`, `ST<op>` with `<op>` `ADD`, `CLR`, `EOR`, `SET`, `SMAX`, `SMIN`, `UMAX`, `UMIN`, each with the `A`/`L`/`AL` and `B`/`H` suffixes
 - Floating point: `FMOV` (register, to/from W/X, and immediates like `#1.0`)
 
-Any other instruction becomes a wildcard for those 4 bytes.
+Any other mnemonic becomes a wildcard for those 4 bytes, matching any instruction (the IDA plugin asks before searching with one).
 
 ## Aliases
 
@@ -41,6 +44,7 @@ Encoded the way assemblers pick them:
 - `CMP`/`CMN`/`TST`: `SUBS`/`ADDS`/`ANDS` to the zero register; `MVN`/`NEG(S)`/`NGC(S)`: `ORN`/`SUB(S)`/`SBC(S)` from it.
 - `LDR`/`STR` offsets the scaled form can't hold (negative, unaligned): `LDUR`/`STUR`.
 - `ADD`/`SUB`/`CMP` immediates that are negative or multiples of 0x1000: the opposite operation or `LSL #12`.
+- `BIC`/`BICS`/`ORN`/`EON` immediates: `AND`/`ANDS`/`ORR`/`EOR` with the inverted value.
 - Register `ADD`/`SUB` with `SP`: the extended (`UXTX`) form.
 - `CSET`/`CSETM`/`CINC`/`CINV`/`CNEG`: `CSINC`/`CSINV`/`CSNEG` with the inverted condition.
 - `LSL`/`LSR`/`ASR` by an immediate, `UBFX`/`UBFIZ`/`BFI`/`SXTB`...: `UBFM`/`SBFM`/`BFM`; `ROR` by an immediate: `EXTR`.

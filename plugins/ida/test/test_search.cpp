@@ -113,6 +113,11 @@ static void arm64(const char* path) {
     bool threw = false;
     try { pscan::parse("48 8G", pscan::bytes_pattern); } catch (const std::logic_error&) { threw = true; }
     CHECK(threw);
+    // A bad operand is an error naming its line, not a wildcard
+    threw = false;
+    try { pscan::parse("NOP\nADD X0, X1, X32", pscan::arm64_pattern); }
+    catch (const std::logic_error& e) { threw = strstr(e.what(), "(ADD X0, X1, X32)") != nullptr; }
+    CHECK(threw);
 
     close_database(false);
     puts("  arm64 ok");
