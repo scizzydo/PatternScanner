@@ -687,6 +687,7 @@
     X("BIC X?, X?, X?",        "BIC X0, X1, X2",              0x8A220020, 1) \
     X("BIC X?, X?, X?",        "AND X0, X1, X2",              0x8A020020, 0) \
     X("BIC X?, X?, X?, ?",     "BIC X0, X1, X2, ROR #3",      0x8AE20C20, 1) \
+    X("BIC X?, X?, #?",        "AND X0, X1, #0xFFFFFFFF00000000", 0x92607C20, 1) \
     X("MVN X?, X?",            "MVN X0, X1",                  0xAA2103E0, 1) \
     X("MVN X?, X?",            "MOV X0, X1",                  0xAA0103E0, 0) \
     X("NEG X?, X?",            "NEG X0, X1",                  0xCB0103E0, 1) \
@@ -795,6 +796,8 @@ static void bad_operands() {
         "TBZ W0, #32, #8", "TBZ X0, #64, #8", "TBZ X0, #4294967299, #8", "SVC #0x10000", "SVC #-1",
         "CCMP X0, #32, #0, EQ", "CCMP X0, #1, #16, EQ", "LSL X0, X1, #64", "LSL W0, W1, #32", "UBFX W0, W1, #30, #4",
         "FMOV D0, #0.1", "FMOV D0, #32.0", "FMOV D0, #-0.0", "FMOV Q0, #1.0",
+        "ADRP X0, #0x1234", "ADD X0, X1, #0xFFFFFFFFFFFFFFFF", "LDR X0, [X1, #0xFFFFFFFFFFFFFFF8]",
+        "STP X0, X1, [SP, #0x8000000000000000]", "MOV X0, #-0xFFFFFFFFFFFFFFFF",
         // Shifts, extends and conditions
         "ADD X0, X1, X2, ROR #3", "ADD X0, X1, X2, LSL", "CMP SP, X5, LSL", "LDR X0, [X1, X2, ROR #3]", "B.XX #0x10",
         "CSET W0, AL", "CINC X0, X1, NV", "CSEL X0, X1, X2, XX", "BTI X",
@@ -841,6 +844,7 @@ static void line_formats() {
     // A '/' in a comment isn't the flags line: "add" mustn't read as /a /d
     CHECK(same(ARM_PATTERN("NOP\nadd x0, x1, x2"), ARM_PATTERN("NOP ; a/b\nadd x0, x1, x2")));
     CHECK(same(ARM_PATTERN("NOP\nRET\n/d"), patterns::RuntimeArmPattern("NOP ; a/b\nRET\n  /d")));
+    CHECK(same(ARM_PATTERN("NOP\nRET\n/a"), ARM_PATTERN("NOP\nRET\n/a ; done")));   // a comment's 'd' isn't /d
     CHECK(ARM_PATTERN("NOP\nRET\n/a").length() == 8);
     puts("  line formats ok");
 }

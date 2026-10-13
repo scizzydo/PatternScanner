@@ -64,9 +64,10 @@ namespace patterns {
             return i;
         }
 
-        // Decimal or 0x hex, optionally negative, nothing else, within 64 bits
+        // Decimal or 0x hex, optionally negative, nothing else, within 64 bits (-2^63 for negatives)
         constexpr bool is_number(const char* s) {
-            if (*s == '-') ++s;
+            const bool negative = *s == '-';
+            if (negative) ++s;
             const bool hex = s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
             if (hex) s += 2;
             const uint64_t base = hex ? 16 : 10;
@@ -77,7 +78,7 @@ namespace patterns {
                 if (v > (~0ULL - d) / base) return false;
                 v = v * base + d;
             }
-            return digits && !*s;
+            return digits && !*s && (!negative || v <= 1ULL << 63);
         }
 
         // An immediate ('#' optional): a number or "?". numeric false leaves the text to the caller (FMOV's decimals)
@@ -90,9 +91,16 @@ namespace patterns {
             return i;
         }
 
+        // A known immediate (checked by parse_imm_token) as signed: fails past INT64_MAX, which would wrap negative
+        constexpr int64_t signed_imm(const char* token) {
+            const int64_t v = stoi<int64_t>(token);
+            if (v < 0 && token[0] != '-') PATTERNS_FAIL("Immediate out of range!");
+            return v;
+        }
+
         // A known immediate (checked by parse_imm_token) in [lo, hi] and a multiple of align
         constexpr int64_t imm_in(const char* token, int64_t lo, int64_t hi, int64_t align = 1) {
-            const int64_t v = stoi<int64_t>(token);
+            const int64_t v = signed_imm(token);
             if (v < lo || v > hi || v % align) PATTERNS_FAIL("Immediate out of range!");
             return v;
         }
@@ -359,10 +367,10 @@ namespace patterns {
             same_width(register_width(rd), 1);
             i = parse_imm_token(instr, expect(instr, i, ','), imm);
             if (imm[0] != '?') {
-                // ADR: +-1MB. ADRP: the distance to the target's 4KB page, +-4GB
+                // ADR: +-1MB. ADRP: the distance to the target's 4KB page (a multiple of 0x1000), +-4GB
                 const bool page = (base.pattern >> 31) & 1;
-                const int64_t range = int64_t(1) << (page ? 32 : 20);
-                int64_t offset = imm_in(imm, -range, range - 1);
+                const int64_t range = int64_t(1) << (page ? 32 : 20), unit = page ? 0x1000 : 1;
+                int64_t offset = imm_in(imm, -range, range - unit, unit);
                 if (page) offset >>= 12;
                 base.set_bits(static_cast<uint32_t>((static_cast<uint64_t>(offset) << 24) | ((offset >> 2) & 0x7FFFF)), (3 << 24 | 0x7FFFF), 5);
             }
@@ -440,7 +448,7 @@ namespace patterns {
                             if (amount[0] == '?') s_mask = 0;
                             else {
                                 // 0 or log2 of the access size; for bytes an explicit #0 is the shifted form
-                                const int64_t a = stoi<int64_t>(amount);
+                                const int64_t a = signed_imm(amount);
                                 if (a != 0 && a != size) return { 0, 0 };
                                 s_val = (size == 0 || a != 0) ? 1 : 0;
                             }
@@ -461,7 +469,7 @@ namespace patterns {
                 PATTERNS_FAIL("Malformed operands!");
 
             const bool known_imm = imm[0] != '?';
-            const int64_t val = known_imm && imm[0] ? stoi<int64_t>(imm) : 0;
+            const int64_t val = known_imm && imm[0] ? signed_imm(imm) : 0;
             bool is_unsigned_offset = !unscaled && !is_register_offset && !is_pre_index && !is_post_index;
             if (is_unsigned_offset && known_imm && (val < 0 || (size > 0 && (val & ((1 << size) - 1)))))
                 is_unsigned_offset = false;
@@ -533,6 +541,7 @@ namespace patterns {
                 // BIC/BICS/ORN/EON (N set) have no immediate form: as assemblers do, AND/ANDS/ORR/EOR the inverse
                 const bool invert = base.pattern >> 21 & 1;
                 base.pattern &= ~(1u << 21);
+                base.mask &= ~(1u << 21);   // immr's top bit here, set by the immediate
                 parse_register(rd, (base.pattern >> 29 & 3) == 3 ? reg_zr : reg_sp);   // Rd 31 is SP, ZR for ANDS
                 if (width >= 0) base.set_bits(static_cast<uint32_t>(width), 1, 31);
                 base.set_bits((2 << 4), (3 << 4 | 1), 23);
@@ -727,7 +736,7 @@ namespace patterns {
             if (imm[0] != '?') {
                 // imm7, scaled by the register size. With the size unknown ("?" registers) the field stays open, but
                 // the offset must fit one of W and X
-                const int64_t v = imm[0] ? stoi<int64_t>(imm) : 0;
+                const int64_t v = imm[0] ? signed_imm(imm) : 0;
                 auto fits = [&](int s) { return v % (1 << s) == 0 && v / (1 << s) >= -64 && v / (1 << s) <= 63; };
                 if (scale >= 0 ? !fits(scale) : !fits(2) && !fits(3)) PATTERNS_FAIL("Immediate out of range!");
                 if (scale >= 0) base.set_bits(static_cast<uint32_t>(v / (1 << scale)), 0x7F, 15);
@@ -1042,7 +1051,7 @@ namespace patterns {
             if (nimm >= 1) i = parse_imm_token(instr, expect(instr, i, ','), a_text);
             if (nimm >= 2) i = parse_imm_token(instr, expect(instr, i, ','), b_text);
             const bool ak = a_text[0] != '?', bk = b_text[0] != '?';
-            const int64_t a = ak && a_text[0] ? stoi<int64_t>(a_text) : 0, b = bk && b_text[0] ? stoi<int64_t>(b_text) : 1;
+            const int64_t a = ak && a_text[0] ? signed_imm(a_text) : 0, b = bk && b_text[0] ? signed_imm(b_text) : 1;
             const bool ubfm = (base.pattern >> 29 & 3) == 2 && kind != bf_ror && kind != bf_extr;
 
             // Only known values are checked; a field depending on a "?" is left open

@@ -482,10 +482,10 @@ namespace patterns {
                 PATTERNS_FAIL("Invalid hex byte in pattern!");
             return static_cast<uint8_t>(detail::get_bits(c));
         }
-        // The flags in ptr, up to n characters or a terminator
+        // The flags in ptr, up to n characters, a terminator or the end of the line (an arm64 ';' comment ends it too)
         constexpr void handle_options(const char* ptr, size_t n = SIZE_MAX) {
             const bool arm64 = arch_ == arch::arm64;
-            for (; n && *ptr; --n) {
+            for (; n && *ptr && *ptr != '\n' && !(arm64 && *ptr == ';'); --n) {
                 if (*ptr == 'd') {
                     if (rel_) PATTERNS_FAIL("Cannot use relative and deref together!");
                     deref_ = true;
