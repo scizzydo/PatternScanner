@@ -1541,13 +1541,13 @@ namespace patterns {
         // flags(text) for the text after '/'. Reads up to n chars or a terminator. Returns the number of instructions
         template <class Line, class X, class Flags>
         constexpr size_t parse_arm(const char* p, size_t n, Line&& line, X&& x, Flags&& flags) {
-            const size_t options = skip_past(p, 0, '/');
-            if (options && p[options - 1] == '/') flags(&p[options]);
             size_t count = 0;
             for (size_t i = 0; i < n && p[i];) {
                 char text[max_line] = {};
+                const size_t line_start = i;
                 i = read_line(p, i, text);
-                if (text[0] == '/') break;
+                // Flags start the last line; a '/' anywhere else (a ; comment) isn't one
+                if (text[0] == '/') { flags(&p[skip_past(p, line_start, '/')]); break; }
                 if (!text[0]) continue;
                 size_t start = 0;
                 if (text[0] == 'X' && (!text[1] || isspace(text[1]))) { x(count); start = skip_whitespace(text, 1); }

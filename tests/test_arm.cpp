@@ -838,6 +838,9 @@ static void line_formats() {
     CHECK(same(ARM_PATTERN("BL #?"), ARM_PATTERN("BL ?")));
     CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP\nRET\n")));
     CHECK(same(ARM_PATTERN("NOP\nRET"), ARM_PATTERN("NOP ; comment\nRET    ; as IDA and lldb print them")));
+    // A '/' in a comment isn't the flags line: "add" mustn't read as /a /d
+    CHECK(same(ARM_PATTERN("NOP\nadd x0, x1, x2"), ARM_PATTERN("NOP ; a/b\nadd x0, x1, x2")));
+    CHECK(same(ARM_PATTERN("NOP\nRET\n/d"), patterns::RuntimeArmPattern("NOP ; a/b\nRET\n  /d")));
     CHECK(ARM_PATTERN("NOP\nRET\n/a").length() == 8);
     puts("  line formats ok");
 }
