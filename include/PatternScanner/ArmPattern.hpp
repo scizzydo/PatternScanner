@@ -144,8 +144,9 @@ namespace patterns {
             return { a.pattern & m, m };
         }
 
-        // After the last operand: anything left is a typo or an operand the instruction doesn't take
-        constexpr ArmOpcode done(const char* instr, size_t i, ArmOpcode op) {
+        // After the last operand: anything left is a typo or an operand the instruction doesn't take. op by reference:
+        // callers pass base next to a call that fills it in, and argument order is unspecified (MSVC copies first)
+        constexpr ArmOpcode done(const char* instr, size_t i, const ArmOpcode& op) {
             if (instr[skip_whitespace(instr, i)]) PATTERNS_FAIL("Unexpected text after the operands!");
             return op;
         }
