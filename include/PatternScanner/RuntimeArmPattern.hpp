@@ -18,7 +18,14 @@ namespace patterns {
             const std::string s(text, len);
             const auto count = detail::parse_arm(s.c_str(), len,
                 [&](size_t, const char* instruction) {
+#ifdef PATTERNS_EXCEPTIONS
+                    detail::ArmOpcode encoded{ 0, 0 };
+                    // Name the line: a pattern is often many
+                    try { encoded = detail::a64_encode_instruction(instruction); }
+                    catch (const std::logic_error& e) { throw std::logic_error(std::string(e.what()) + " (" + instruction + ")"); }
+#else
                     const auto encoded = detail::a64_encode_instruction(instruction);
+#endif
                     m_instructions.push_back(encoded.pattern);
                     m_masks.push_back(encoded.mask);
                 },

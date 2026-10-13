@@ -48,11 +48,12 @@ Include the header with the same name, e.g. `<PatternScanner/XORPattern.hpp>`.
 - `4?` / `?8`: any low / high nibble
 - arm64: `?` for a register (`X?`), immediate (`#?`), shift (`LSL #?`), condition (`B.?`) or a whole instruction
 
-**Capture marker**: `X` marks the operand you care about; `X1`/`X2`/`X4`/`X8` give its size.
+**Capture marker**: `X` marks the operand you care about. `X<n>` is how many bytes from it to the end of the instruction, which `/d` targets are relative to (`E8 X4 ? ? ? ?`: 4).
 
 **Flags** (at the end of the pattern)
 - `/d`: dereference: return the address the operand points to (e.g. a call or RIP-relative target)
 - `/r`: read the value at the operand
+- `/d1`, `/r2`, `/r8`...: the operand's size in bytes (1, 2, 4 or 8 on x64; default 4)
 - `/a`: only match at aligned addresses (4 bytes on x86/arm64, 8 on x64)
 
 ## Examples
@@ -65,7 +66,7 @@ constexpr auto a = "AB CC 11 22 33 44 AB 6D X4 EF BE AD DE /r"_ctpattern;
 constexpr auto b = "FE ED FA CE E8 X4 ? ? ? ? EF BE AD DE /da"_xorpattern;
 
 // Follow a short jump (1-byte operand), pattern built at runtime
-auto c = "BA BE CA FE 72 X1 ? 11 22 /d"_rtpattern;
+auto c = "BA BE CA FE 72 X1 ? 11 22 /d1"_rtpattern;
 
 // arm64: resolve ADRP + ADD to the full address
 constexpr auto d =

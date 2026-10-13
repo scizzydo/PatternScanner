@@ -103,12 +103,20 @@ static void arm64(const char* path) {
     CHECK(pscan::unsupported_lines(prologue).empty());
     const auto fn = all(prologue, pscan::arm64_pattern);
     CHECK(fn.size() == 1 && fn[0].match == sym("wanted"));
+    // /d on an instruction it can't decode (STP): a hit, but unresolved
+    const auto stp = next("X STP X20, X19, [SP,#?]!\n/d", pscan::arm64_pattern, 0, false);
+    CHECK(stp.match == sym("wanted") && !stp.resolved);
 
     // Unknown instructions are reported (they'd match anything); a deliberate "?" line isn't
     CHECK(pscan::unsupported_lines("NOP\nFOO X1, X2\n  ?  \nstp x29, x30, [sp,#?]\nBAR\n/d") == "FOO X1, X2\nBAR\n");
 
     bool threw = false;
     try { pscan::parse("48 8G", pscan::bytes_pattern); } catch (const std::logic_error&) { threw = true; }
+    CHECK(threw);
+    // A bad operand is an error naming its line, not a wildcard
+    threw = false;
+    try { pscan::parse("NOP\nADD X0, X1, X32", pscan::arm64_pattern); }
+    catch (const std::logic_error& e) { threw = strstr(e.what(), "(ADD X0, X1, X32)") != nullptr; }
     CHECK(threw);
 
     close_database(false);

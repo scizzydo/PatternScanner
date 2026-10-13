@@ -25,6 +25,28 @@
 #define __forceinline inline __attribute__((always_inline))
 #endif
 
+// Pattern errors throw std::logic_error, which in a compile-time pattern is a compile error. Without exceptions
+// (-fno-exceptions, kernel code) they call a non-constexpr function instead: still a compile error at compile time,
+// a trap at runtime
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define PATTERNS_EXCEPTIONS 1
+#define PATTERNS_FAIL(msg) throw std::logic_error(msg)
+#else
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+namespace patterns::detail {
+    [[noreturn]] inline void fail() {
+#ifdef _MSC_VER
+        __fastfail(7);
+#else
+        __builtin_trap();
+#endif
+    }
+}
+#define PATTERNS_FAIL(msg) patterns::detail::fail()
+#endif
+
 // Compile-time patterns must never be built at runtime: that would put the pattern text in the binary.
 // consteval enforces it (C++20); before that the macros force it with a constexpr local.
 #ifdef __cpp_consteval
@@ -115,21 +137,22 @@ namespace patterns {
         }
 
         // The byte pattern syntax ("48 8B ? X4 ? ? ? ? /d"). Calls byte(index, hi, lo) for each byte (its two characters:
-        // hex digits or '?'; lo is '\0' past the end), x(index, len_text) for the X marker (len_text at the digits after
-        // X, or nullptr) and flags(text) for the text after '/'. Returns the number of bytes
+        // hex digits or '?'; lo is '\0' past the end), x(index, text, n) for the X marker (the n characters after X)
+        // and flags(text, n) for the n characters after '/'. Never reads past len. Returns the number of bytes
         template <class Byte, class X, class Flags>
         constexpr size_t parse_bytes(const char* p, size_t len, Byte&& byte, X&& x, Flags&& flags) {
             size_t n = 0;
             for (size_t i = 0; i < len; i += 2) {
                 const char c = p[i];
                 if (c == 'X' || c == 'x') {
-                    x(n, i + 1 < len && p[i + 1] != ' ' ? &p[i + 1] : nullptr);
+                    const size_t start = i + 1;
                     while (i + 1 < len && p[i + 1] != ' ')
                         ++i;
+                    x(n, &p[start], i + 1 - start);
                 }
                 // The flags end the pattern
                 else if (c == '/') {
-                    flags(&p[i + 1]);
+                    flags(&p[i + 1], len - i - 1);
                     break;
                 }
                 else if (c != ' ')
@@ -142,7 +165,9 @@ namespace patterns {
         template<typename T>
         T extract_bitfield(uint32_t insn, unsigned width, unsigned offset) {
             constexpr size_t int_width = sizeof(int32_t) * 8;
-            return (static_cast<T>(insn) << (int_width - (offset + width))) >> (int_width - width);
+            // Shifted left unsigned (a negative signed value can't be before C++20), then back down as T: signed T
+            // sign-extends the field
+            return static_cast<T>(insn << (int_width - (offset + width))) >> (int_width - width);
         }
 
         bool __forceinline decode_masked_match(uint32_t insn, uint32_t mask, uint32_t pattern) {
@@ -164,7 +189,7 @@ namespace patterns {
             // 0 - B
             if (decode_masked_match(insn, 0b0111'1100'0000'0000'0000'0000'0000'0000, 0b0001'0100'0000'0000'0000'0000'0000'0000)) {
                 if (is_bl) *is_bl = (insn >> 31) & 0x1;
-                *offset = extract_bitfield<int32_t>(insn, 26, 0) << 2;
+                *offset = extract_bitfield<int32_t>(insn, 26, 0) * 4;
                 return true;
             }
             return false;
@@ -183,7 +208,7 @@ namespace patterns {
             if (decode_masked_match(insn, 0b0001'1111'0000'0000'0000'0000'0000'0000, 0b0001'0000'0000'0000'0000'0000'0000'0000)) {
                 if (rd) *rd = insn & 0x1f;
                 uint32_t immlo = (insn >> 29) & 0x3;
-                int32_t immhi = extract_bitfield<int32_t>(insn, 19, 5) << 2;
+                int32_t immhi = extract_bitfield<int32_t>(insn, 19, 5) * 4;
                 auto adrp = (insn >> 31) & 0x1;
                 if (is_adrp) *is_adrp = adrp;
                 // Back to signed (immlo is unsigned) before widening, and a 64-bit multiply: ADRP reaches +-4GB
@@ -357,12 +382,12 @@ namespace patterns {
                     if (hi == '?' && lo != '?' && !detail::is_hex_digit(lo)) lo = '?';
                     emit(n, uint8_t(nibble(hi) << 4 | nibble(lo)), uint8_t((hi == '?' ? 0 : 0xF0) | (lo == '?' ? 0 : 0x0F)));
                 },
-                [&](size_t n, const char* len_text) {
+                [&](size_t n, const char* len_text, size_t len_chars) {
                     offset_ = static_cast<uint32_t>(n);
-                    if (len_text && arch_ != arch::arm64)
-                        insn_len_ = get_inst_len_opt(len_text);
+                    if (len_chars && arch_ != arch::arm64)
+                        insn_len_ = get_inst_len_opt(len_text, len_chars);
                 },
-                [&](const char* flags) { handle_options(flags); });
+                [&](const char* flags, size_t n) { handle_options(flags, n); });
         }
         // First match of pat/msk in [bytes, bytes + size). Two anchor bytes are checked first
         // (16 positions at a time with SIMD), and only positions passing both get a full compare.
@@ -454,18 +479,19 @@ namespace patterns {
         static constexpr uint8_t nibble(char c) {
             if (c == '?') return 0;
             if (!detail::is_hex_digit(c))
-                throw std::logic_error("Invalid hex byte in pattern!");
+                PATTERNS_FAIL("Invalid hex byte in pattern!");
             return static_cast<uint8_t>(detail::get_bits(c));
         }
-        constexpr void handle_options(const char* ptr) {
+        // The flags in ptr, up to n characters, a terminator or the end of the line (an arm64 ';' comment ends it too)
+        constexpr void handle_options(const char* ptr, size_t n = SIZE_MAX) {
             const bool arm64 = arch_ == arch::arm64;
-            while (*ptr) {
+            for (; n && *ptr && *ptr != '\n' && !(arm64 && *ptr == ';'); --n) {
                 if (*ptr == 'd') {
-                    if (rel_) throw std::logic_error("Cannot use relative and deref together!");
+                    if (rel_) PATTERNS_FAIL("Cannot use relative and deref together!");
                     deref_ = true;
                 }
                 else if (*ptr == 'r' && !arm64) {
-                    if (deref_) throw std::logic_error("Cannot use relative and deref together!");
+                    if (deref_) PATTERNS_FAIL("Cannot use relative and deref together!");
                     rel_ = true;
                 }
                 else if (*ptr == 'a')
@@ -473,7 +499,7 @@ namespace patterns {
                 // Check the next character to see what size we're reading at this relative address
                 else if (!arm64 && *ptr > '0' && (arch_ == arch::x64 ? *ptr < '9' : *ptr < '5')) {
                     size_ = *ptr - '0';
-                    if ((size_ & (size_ - 1)) != 0) throw std::logic_error("Size is not a valid data type size!");
+                    if ((size_ & (size_ - 1)) != 0) PATTERNS_FAIL("Size is not a valid data type size!");
                 }
                 ++ptr;
             }
@@ -542,8 +568,9 @@ namespace patterns {
                     if (is_value) *is_value = true;
                     return reinterpret_cast<void*>((sf ? offset : static_cast<int32_t>(offset)));
                 }
-                else
-                    throw std::logic_error("Failed to decode instruction with defined functions");
+                // Not an instruction /d resolves: no result, as for no match. find() runs where an exception can't
+                // (TLS callbacks, DllMain, kernel code)
+                return nullptr;
             }
             else if (arch_ != arch::arm64 && (deref_ || rel_)) {
                 const auto relative_address = relative_value(address + offset_);
@@ -584,10 +611,14 @@ namespace patterns {
             // Should never hit here
             return 0;
         }
-        constexpr int32_t get_inst_len_opt(const char* ptr) const {
-            if (*ptr > '9' || *ptr < '0')
-                throw std::logic_error("Invalid data for calculating remaining instruction size!");
-            return detail::stoi(ptr);
+        // The digits in the first n characters at ptr
+        constexpr uint32_t get_inst_len_opt(const char* ptr, size_t n) const {
+            if (!detail::is_digit(*ptr))
+                PATTERNS_FAIL("Invalid data for calculating remaining instruction size!");
+            uint32_t value = 0;
+            for (size_t k = 0; k < n && detail::is_digit(ptr[k]); ++k)
+                value = value * 10 + static_cast<uint32_t>(ptr[k] - '0');
+            return value;
         }
     };
 
